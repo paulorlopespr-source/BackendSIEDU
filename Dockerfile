@@ -8,6 +8,8 @@ RUN npm ci --omit=dev
 
 COPY src ./src
 
+COPY banco ./banco
+
 ENV NODE_ENV=production
 
 EXPOSE 3001

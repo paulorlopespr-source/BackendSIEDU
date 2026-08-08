@@ -23,7 +23,7 @@ const migrations = [
 ];
 
 for (const fileName of migrations) {
-  const migration = resolve(process.cwd(), '..', 'banco', fileName);
+ const migration = resolve(process.cwd(), 'banco', fileName);
   const sql = (await readFile(migration, 'utf8')).replace(/^\uFEFF/, '');
   await pool.query(sql);
   console.log(`Migration ${fileName} applied successfully.`);
