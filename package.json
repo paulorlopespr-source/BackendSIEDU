@@ -1,0 +1,29 @@
+﻿
+
+{
+  "name": "sigepin-api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test --test-concurrency=1",
+    "test:academic-api": "node src/scripts/smoke-academic.js",
+    "test:user-bindings-api": "node src/scripts/smoke-user-bindings.js",
+    "check": "node --check src/server.js",
+    "db:migrate": "node src/scripts/migrate.js",
+    "db:seed-admin": "node src/scripts/seed-admin.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.16.0",
+    "zod": "^4.4.3"
+  }
+}
+
+
