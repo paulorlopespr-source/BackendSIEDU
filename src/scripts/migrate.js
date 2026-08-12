@@ -25,6 +25,7 @@ const migrations = [
   '22_perfil_vice_diretor.sql',
   '23_email_usuario_opcional.sql',
   '24_perfis_funcionarios_educacao.sql',
+  '25_hierarquia_acesso_profissionais.sql',
 ];
 
 await pool.query(`
