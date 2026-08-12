@@ -89,6 +89,14 @@ function httpError(statusCode, message) {
   return error;
 }
 
+function allowUserAdministration(request, response, next) {
+  const profiles = new Set(['Secretário Municipal de Educação', 'Super Administrador']);
+  if (!profiles.has(request.access?.perfil)) {
+    return response.status(403).json({ message: 'Este perfil pode consultar a rede, mas não pode criar, excluir ou alterar cadastros de usuários.' });
+  }
+  return next();
+}
+
 function decodePhoto(dataUrl) {
   if (!dataUrl) return null;
   const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
@@ -213,7 +221,7 @@ router.get('/:id/photo', async (request, response, next) => {
   } catch (error) { return next(error); }
 });
 
-router.post('/', async (request, response, next) => {
+router.post('/', allowUserAdministration, async (request, response, next) => {
   const client = await pool.connect();
   try {
     const data = userSchema.parse(request.body);
@@ -348,7 +356,7 @@ router.patch('/:id/schools', async (request, response, next) => {
   finally { client.release(); }
 });
 
-router.delete('/:id', async (request, response, next) => {
+router.delete('/:id', allowUserAdministration, async (request, response, next) => {
   try {
     if (Number(request.params.id) === request.user.sub) {
       return response.status(400).json({ message: 'Você não pode excluir seu próprio usuário.' });
