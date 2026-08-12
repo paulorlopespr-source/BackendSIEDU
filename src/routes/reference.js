@@ -4,6 +4,17 @@ import { authenticate } from '../middlewares/auth.js';
 import { loadAccessContext } from '../middlewares/access.js';
 
 const router = Router();
+
+const educationEmployeeProfiles = [
+  'Motorista',
+  'Auxiliar de Serviços Gerais',
+  'Auxiliar de Vida Escolar (AVE)',
+  'Secretaria Administrativa',
+  'Secretaria Escolar',
+  'Diretor',
+  'Coordenador',
+  'Professor',
+];
 router.use(authenticate, loadAccessContext);
 
 router.get('/user-types', async (_request, response, next) => {
@@ -11,8 +22,9 @@ router.get('/user-types', async (_request, response, next) => {
     const { rows } = await pool.query(`
       SELECT id, nome, nivel, descricao
       FROM tipos_usuarios
+      WHERE nome = ANY($1::TEXT[])
       ORDER BY nivel, nome, id
-    `);
+    `, [educationEmployeeProfiles]);
     response.json(rows);
   } catch (error) {
     next(error);
