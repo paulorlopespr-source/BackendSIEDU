@@ -9,7 +9,18 @@ router.use(authenticate, loadAccessContext);
 const isPedagogicalCoordinator=(profile)=>/coordenador.*pedagógico/i.test(profile||'');
 const canReadMaterials=(request)=>request.access?.perfil==='Professor'||request.access?.perfil==='Aluno'||isPedagogicalCoordinator(request.access?.perfil);
 
-router.get('/materials',async(request,response,next)=>{try{if(!canReadMaterials(request))return response.status(403).json({message:'Perfil sem acesso aos materiais didáticos.'});const turmaId=Number(request.query.turmaId||0);let query=`SELECT m.id,m.turma_id AS "turmaId",t.nome AS turma,m.componente_curricular AS disciplina,m.titulo,m.tipo,m.descricao,m.conteudo_texto AS "conteudoTexto",m.url_externa AS "urlExterna",m.arquivo_dados AS "arquivoDados",m.arquivo_nome AS "arquivoNome",m.arquivo_mime AS "arquivoMime",m.publicado,m.criado_em AS "criadoEm",p.nome_completo AS professor FROM materiais_aula m JOIN professores p ON p.id=m.professor_id JOIN turmas t ON t.id=m.turma_id WHERE m.publicado=TRUE`;const params=[];if(request.access.perfil==='Professor'){params.push(request.access.userId);query+=' AND p.usuario_id=}if(turmaId){params.push(turmaId);query+=' AND m.turma_id=}query+=' ORDER BY m.criado_em DESC,m.id DESC';const {rows}=await pool.query(query,params);return response.json(rows);}catch(error){return next(error);}});
+router.get('/materials',async(request,response,next)=>{try{
+ if(!canReadMaterials(request))return response.status(403).json({message:'Perfil sem acesso aos materiais didáticos.'});
+ const turmaId=Number(request.query.turmaId||0);
+ const base=`SELECT m.id,m.turma_id AS "turmaId",t.nome AS turma,m.componente_curricular AS disciplina,m.titulo,m.tipo,m.descricao,m.conteudo_texto AS "conteudoTexto",m.url_externa AS "urlExterna",m.arquivo_dados AS "arquivoDados",m.arquivo_nome AS "arquivoNome",m.arquivo_mime AS "arquivoMime",m.publicado,m.criado_em AS "criadoEm",p.nome_completo AS professor FROM materiais_aula m JOIN professores p ON p.id=m.professor_id JOIN turmas t ON t.id=m.turma_id WHERE m.publicado=TRUE`;
+ let result;
+ if(request.access.perfil==='Professor'){
+  result=turmaId?await pool.query(base+' AND p.usuario_id=$1 AND m.turma_id=$2 ORDER BY m.criado_em DESC,m.id DESC',[request.access.userId,turmaId]):await pool.query(base+' AND p.usuario_id=$1 ORDER BY m.criado_em DESC,m.id DESC',[request.access.userId]);
+ }else{
+  result=turmaId?await pool.query(base+' AND m.turma_id=$1 ORDER BY m.criado_em DESC,m.id DESC',[turmaId]):await pool.query(base+' ORDER BY m.criado_em DESC,m.id DESC');
+ }
+ return response.json(result.rows);
+}catch(error){return next(error);}});
 
 router.post('/materials',async(request,response,next)=>{try{if(request.access?.perfil!=='Professor')return response.status(403).json({message:'Somente professores podem publicar materiais.'});const d=request.body;const link=await professorClass(request,d.turmaId);if(!link)return response.status(403).json({message:'Turma não atribuída ao professor.'});if(!String(d.titulo||'').trim())return response.status(400).json({message:'Informe o título do material.'});const arquivo=String(d.arquivoDados||'');if(arquivo.length>7000000)return response.status(400).json({message:'O arquivo deve ter no máximo 5 MB.'});const tipos=['Texto','Vídeo','Livro','Slide','Documento','Imagem','Link','Outro'];const {rows}=await pool.query(`INSERT INTO materiais_aula(professor_id,turma_id,componente_curricular,titulo,tipo,descricao,conteudo_texto,url_externa,arquivo_dados,arquivo_nome,arquivo_mime,publicado) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE) RETURNING id`,[link.professor_id,d.turmaId,link.componente_curricular,String(d.titulo).trim(),tipos.includes(d.tipo)?d.tipo:'Outro',d.descricao||null,d.conteudoTexto||null,d.urlExterna||null,arquivo||null,d.arquivoNome||null,d.arquivoMime||null]);return response.status(201).json(rows[0]);}catch(error){return next(error);}});
 
