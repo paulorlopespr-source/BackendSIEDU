@@ -19,3 +19,9 @@ FROM (VALUES
   ('Porteiro/Vigia', 5, 'Portaria e vigilância'),
   ('Psicólogo', 4, 'Apoio psicossocial'),
   ('Assistente Social', 4, 'Apoio socioassistencial'),
+
+  ('Nutricionista', 4, 'Alimentação e nutrição escolar')
+) AS perfil(nome, nivel, descricao)
+WHERE NOT EXISTS (
+  SELECT 1 FROM tipos_usuarios t WHERE t.nome = perfil.nome
+);
