@@ -26,6 +26,8 @@ const migrations = [
   '23_email_usuario_opcional.sql',
   '24_perfis_funcionarios_educacao.sql',
   '25_hierarquia_acesso_profissionais.sql',
+  '26_cadastro_funcional_completo.sql',
+  '27_perfis_acesso_siedu.sql',
 ];
 
 await pool.query(`
