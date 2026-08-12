@@ -39,6 +39,7 @@ const migrations = [
   '36_dados_teste_turmas_professor.sql',
   '37_diario_classe_professor.sql',
   '38_avaliacoes_notas_professor.sql',
+  '39_planejamento_aula_professor.sql',
 ];
 
 await pool.query(`
