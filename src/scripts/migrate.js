@@ -34,6 +34,7 @@ const migrations = [
   '31_usuario_teste_coordenador.sql',
   '32_usuario_teste_diretor.sql',
   '33_usuario_teste_professor.sql',
+  '34_historico_aluno_professor.sql',
 ];
 
 await pool.query(`
