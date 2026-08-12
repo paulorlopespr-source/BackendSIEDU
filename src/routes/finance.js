@@ -25,8 +25,18 @@ function accessibleSchoolClause(request, alias = 'a') {
 }
 
 function canManageSchoolFinance(request) {
+  if (request.access.perfil === 'Superintendente / Diretor de Ensino') return false;
   if (request.access.municipal) return true;
   return /diretor|secretaria escolar/i.test(request.access.perfil);
+}
+
+function preventSuperintendentFinanceWrite(request, response, next) {
+  if (request.access.perfil === 'Superintendente / Diretor de Ensino') {
+    return response.status(403).json({
+      message: 'O Superintendente possui acesso de consulta e parecer técnico, sem permissão para lançar, alocar ou aprovar recursos financeiros.',
+    });
+  }
+  return next();
 }
 
 async function ensureSchoolAccess(request, response, schoolId) {
@@ -147,7 +157,7 @@ router.get('/', allowSchoolStaff, async (request, response, next) => {
   }
 });
 
-router.post('/allocations', allowMunicipalAdmin, async (request, response, next) => {
+router.post('/allocations', allowMunicipalAdmin, preventSuperintendentFinanceWrite, async (request, response, next) => {
   try {
     const data = z.object({
       escolaId: z.coerce.number().int().positive(),
@@ -184,7 +194,7 @@ router.post('/allocations', allowMunicipalAdmin, async (request, response, next)
   }
 });
 
-router.post('/expenses', allowSchoolStaff, async (request, response, next) => {
+router.post('/expenses', allowSchoolStaff, preventSuperintendentFinanceWrite, async (request, response, next) => {
   try {
     if (!canManageSchoolFinance(request)) {
       return response.status(403).json({
@@ -253,7 +263,7 @@ router.post('/expenses', allowSchoolStaff, async (request, response, next) => {
   }
 });
 
-router.post('/statements', allowSchoolStaff, async (request, response, next) => {
+router.post('/statements', allowSchoolStaff, preventSuperintendentFinanceWrite, async (request, response, next) => {
   try {
     if (!canManageSchoolFinance(request)) {
       return response.status(403).json({
@@ -289,7 +299,7 @@ router.post('/statements', allowSchoolStaff, async (request, response, next) => 
   }
 });
 
-router.post('/allocations/:id/audit', allowMunicipalAdmin, async (request, response, next) => {
+router.post('/allocations/:id/audit', allowMunicipalAdmin, preventSuperintendentFinanceWrite, async (request, response, next) => {
   try {
     const allocationId = z.coerce.number().int().positive().parse(request.params.id);
     const data = z.object({
