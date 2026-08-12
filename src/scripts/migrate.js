@@ -29,6 +29,7 @@ const migrations = [
   '26_cadastro_funcional_completo.sql',
   '27_perfis_acesso_siedu.sql',
   '28_usuario_teste_secretario.sql',
+  '29_usuario_teste_secretario_exclusivo.sql',
 ];
 
 await pool.query(`
