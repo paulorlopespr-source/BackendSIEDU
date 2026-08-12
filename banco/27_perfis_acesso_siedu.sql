@@ -18,4 +18,4 @@ FROM (VALUES
   ('Merendeira/Cozinheira', 5, 'Alimentação escolar'),
   ('Porteiro/Vigia', 5, 'Portaria e vigilância'),
   ('Psicólogo', 4, 'Apoio psicossocial'),
-  ('Assistente Social', 4, 'Apoio socioassist
+  ('Assistente Social', 4, 'Apoio socioassistencial'),
