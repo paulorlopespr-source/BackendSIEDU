@@ -46,4 +46,22 @@ router.get('/students/:studentId/history', async (request,response,next)=>{
  } catch(error){return next(error);}
 });
 
+router.get('/diaries', async (request,response,next)=>{
+ try { const {rows}=await pool.query(`SELECT d.id,d.turma_id AS "turmaId",t.nome AS turma,d.componente_curricular AS disciplina,d.data_aula AS data,d.quantidade_aulas AS "quantidadeAulas",d.conteudo,d.metodologia,d.observacoes,COUNT(f.aluno_id) FILTER(WHERE f.presente=FALSE)::INTEGER AS faltas FROM diarios_classe d JOIN professores p ON p.id=d.professor_id JOIN turmas t ON t.id=d.turma_id LEFT JOIN diario_frequencias f ON f.diario_id=d.id WHERE p.usuario_id=$1 GROUP BY d.id,t.nome ORDER BY d.data_aula DESC,d.id DESC LIMIT 30`,[request.access.userId]); return response.json(rows); } catch(error){return next(error);}
+});
+
+router.post('/diaries', async (request,response,next)=>{
+ const client=await pool.connect();
+ try { const {turmaId,data,quantidadeAulas,conteudo,metodologia,observacoes,frequencias}=request.body;
+  const linked=await client.query(`SELECT p.id AS professor_id,tp.componente_curricular FROM professores p JOIN turma_professores tp ON tp.professor_id=p.id WHERE p.usuario_id=$1 AND tp.turma_id=$2 AND p.ativo=TRUE LIMIT 1`,[request.access.userId,Number(turmaId)]);
+  if(!linked.rows[0]) return response.status(403).json({message:'Turma não atribuída ao professor.'});
+  if(!data||!String(conteudo||'').trim()) return response.status(400).json({message:'Informe a data e o conteúdo ministrado.'});
+  await client.query('BEGIN'); const teacher=linked.rows[0];
+  const saved=await client.query(`INSERT INTO diarios_classe(turma_id,professor_id,componente_curricular,data_aula,quantidade_aulas,conteudo,metodologia,observacoes) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(turma_id,professor_id,componente_curricular,data_aula) DO UPDATE SET quantidade_aulas=EXCLUDED.quantidade_aulas,conteudo=EXCLUDED.conteudo,metodologia=EXCLUDED.metodologia,observacoes=EXCLUDED.observacoes,atualizado_em=NOW() RETURNING id`,[turmaId,teacher.professor_id,teacher.componente_curricular,data,Number(quantidadeAulas||1),String(conteudo).trim(),metodologia||null,observacoes||null]);
+  const diaryId=saved.rows[0].id; await client.query('DELETE FROM diario_frequencias WHERE diario_id=$1',[diaryId]);
+  for(const item of Array.isArray(frequencias)?frequencias:[]){ const enrollment=await client.query(`SELECT 1 FROM matriculas WHERE aluno_id=$1 AND turma_id=$2 AND status='Ativa'`,[item.alunoId,turmaId]); if(!enrollment.rows[0]) throw Object.assign(new Error('Aluno fora da turma.'),{statusCode:403}); await client.query(`INSERT INTO diario_frequencias(diario_id,aluno_id,presente,justificada,observacao) VALUES($1,$2,$3,$4,$5)`,[diaryId,item.alunoId,item.presente!==false,Boolean(item.justificada),item.observacao||null]); if(item.presente===false){await client.query(`INSERT INTO faltas_alunos(aluno_id,turma_id,professor_id,componente_curricular,data_aula,quantidade,justificada) SELECT $1,$2,$3,$4,$5,1,$6 WHERE NOT EXISTS(SELECT 1 FROM faltas_alunos WHERE aluno_id=$1 AND turma_id=$2 AND professor_id=$3 AND data_aula=$5)`,[item.alunoId,turmaId,teacher.professor_id,teacher.componente_curricular,data,Boolean(item.justificada)]);} }
+  await client.query('COMMIT'); return response.status(201).json({id:diaryId,message:'Diário salvo com sucesso.'});
+ } catch(error){await client.query('ROLLBACK');return next(error);} finally{client.release();}
+});
+
 export default router;
