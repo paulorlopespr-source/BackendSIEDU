@@ -36,11 +36,14 @@ const schoolBindingsSchema = z.object({
 });
 
 const managedSchoolProfiles = new Set([
-  'Diretor',
-  'Vice-diretor',
-  'Coordenador',
+  'Motorista',
+  'Auxiliar de Serviços Gerais',
+  'Auxiliar de Vida Escolar (AVE)',
+  'Secretaria Administrativa',
   'Secretaria Escolar',
-  'Secretário Escolar',
+  'Diretor',
+  'Coordenador',
+  'Professor',
 ]);
 
 function httpError(statusCode, message) {
@@ -200,6 +203,9 @@ router.post('/', async (request, response, next) => {
   try {
     const data = userSchema.parse(request.body);
     const profile = await findProfileByTypeId(client, data.tipoUsuarioId);
+    if (!managedSchoolProfiles.has(profile.nome)) {
+      throw httpError(400, 'Selecione um perfil válido de funcionário da educação.');
+    }
     const requestedSchoolIds = data.escolaIds !== undefined
       ? data.escolaIds
       : data.escolaId
@@ -220,7 +226,7 @@ router.post('/', async (request, response, next) => {
       .slice(0, 2)
       .join('.');
     const senhaTemporaria = data.senhaTemporaria
-      || `Siepin${Math.floor(100000 + Math.random() * 900000)}`;
+      || `Siedu${Math.floor(100000 + Math.random() * 900000)}`;
 
     await client.query('BEGIN');
 
@@ -274,7 +280,7 @@ router.patch('/:id/schools', async (request, response, next) => {
     if (!managedSchoolProfiles.has(user.perfil)) {
       throw httpError(
         400,
-        'A gestão de vínculos desta tela é permitida para Diretor, Coordenador e Secretário Escolar.',
+        'A gestão de vínculos desta tela é permitida somente para os perfis de funcionários da educação.',
       );
     }
 
