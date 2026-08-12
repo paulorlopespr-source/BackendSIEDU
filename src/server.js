@@ -49,7 +49,7 @@ app.use(express.json({ limit: '8mb' }));
 app.use(auditMutations);
 
 app.get('/', (_request, response) => response.json({
-  name: 'SIEDU API',
+  name: 'SIEDU-PINDOBAÇU API',
   status: 'online',
 }));
 app.use('/api/health', healthRouter);
@@ -94,7 +94,7 @@ app.use((error, _request, response, _next) => {
 });
 
 const server = app.listen(port, () => {
-  console.log(`SIEDU API disponível em http://localhost:${port}`);
+  console.log(`SIEDU-PINDOBAÇU API disponível em http://localhost:${port}`);
 });
 
 function shutdown(signal) {
