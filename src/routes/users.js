@@ -1,76 +1,87 @@
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { pool } from '../database.js';
 import { authenticate } from '../middlewares/auth.js';
-import {
-  allowMunicipalAdmin,
-  loadAccessContext,
-} from '../middlewares/access.js';
-import {
-  cpfSchema,
-  emailSchema,
-  strongPasswordSchema,
-} from '../utils/validation.js';
+import { allowMunicipalAdmin, loadAccessContext } from '../middlewares/access.js';
+import { cpfSchema, emailSchema, strongPasswordSchema } from '../utils/validation.js';
 
 const router = Router();
-
-const optionalEmailSchema = z.preprocess(
+const optionalText = (max = 255) => z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  z.string().trim().max(max).optional(),
+);
+const optionalEmail = z.preprocess(
   (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
   emailSchema.optional(),
 );
+const optionalDate = z.preprocess(
+  (value) => (value === '' || value == null ? undefined : value),
+  z.iso.date().optional(),
+);
+const optionalNumber = z.preprocess(
+  (value) => (value === '' || value == null ? undefined : value),
+  z.coerce.number().positive().max(80).optional(),
+);
 
 const userSchema = z.object({
-  nome: z.string().trim().min(3),
+  nome: z.string().trim().min(3).max(150),
+  nomeSocial: optionalText(150),
   cpf: cpfSchema,
-  email: optionalEmailSchema,
+  dataNascimento: optionalDate,
+  genero: optionalText(40),
+  telefoneInstitucional: optionalText(30),
+  email: optionalEmail,
+  emailPessoal: optionalEmail,
+  enderecoResidencial: optionalText(500),
+  contatoEmergenciaNome: optionalText(150),
+  contatoEmergenciaTelefone: optionalText(30),
+  matriculaFuncional: z.string().trim().min(2).max(50),
+  cargo: z.string().trim().min(2).max(120),
+  funcaoExercida: z.string().trim().min(2).max(120),
+  tipoVinculo: z.enum(['efetivo', 'contratado', 'comissionado', 'temporario', 'cedido', 'estagiario', 'terceirizado']),
+  situacaoFuncional: z.enum(['ativo', 'afastado', 'licenca', 'cedido', 'desligado']),
+  dataAdmissao: z.iso.date(),
+  dataDesligamento: optionalDate,
+  cargaHorariaSemanal: optionalNumber,
+  turnosTrabalho: z.array(z.enum(['matutino', 'vespertino', 'noturno', 'integral'])).max(4).default([]),
+  secretariaSetor: optionalText(150),
+  disciplinas: z.array(z.string().trim().min(1).max(100)).max(30).default([]),
+  turmasAtendidas: z.array(z.string().trim().min(1).max(100)).max(100).default([]),
+  gestorImediato: optionalText(150),
+  observacoesAdministrativas: optionalText(2000),
   tipoUsuarioId: z.coerce.number().int().positive(),
   escolaId: z.coerce.number().int().positive().nullable().optional(),
   escolaIds: z.array(z.coerce.number().int().positive()).max(100).optional(),
-  usuario: z.string().trim().min(3).optional(),
+  usuario: z.string().trim().min(3).max(80),
+  situacaoAcesso: z.enum(['ativo', 'bloqueado', 'pendente', 'desligado']).default('pendente'),
   senhaTemporaria: strongPasswordSchema.optional(),
+  fotoBase64: optionalText(3000000),
 });
 
 const schoolBindingsSchema = z.object({
   escolaIds: z.array(z.coerce.number().int().positive()).max(100),
 });
 
+const photoSchema = z.object({ fotoBase64: z.string().min(20).max(3000000) });
 const allowedEducationProfiles = new Set([
-  'Secretário Municipal de Educação',
-  'Superintendente / Diretor de Ensino',
-  'Coordenador Pedagógico Municipal',
-  'Técnico da Secretaria de Educação',
-  'Diretor',
-  'Vice-Diretor',
-  'Coordenador Pedagógico',
-  'Secretário Escolar',
-  'Auxiliar/Assistente Administrativo',
-  'Professor',
-  'Auxiliar de Vida Escolar / Cuidador',
-  'Auxiliar de Serviços Gerais',
-  'Motorista',
-  'Monitor de Transporte Escolar',
-  'Merendeira/Cozinheira',
-  'Porteiro/Vigia',
-  'Psicólogo',
-  'Assistente Social',
-  'Nutricionista'
+  'Secretário Municipal de Educação', 'Superintendente / Diretor de Ensino',
+  'Coordenador Pedagógico Municipal', 'Técnico da Secretaria de Educação',
+  'Diretor', 'Vice-Diretor', 'Coordenador Pedagógico', 'Secretário Escolar',
+  'Auxiliar/Assistente Administrativo', 'Professor',
+  'Auxiliar de Vida Escolar / Cuidador', 'Auxiliar de Serviços Gerais',
+  'Motorista', 'Monitor de Transporte Escolar', 'Merendeira/Cozinheira',
+  'Porteiro/Vigia', 'Psicólogo', 'Assistente Social', 'Nutricionista',
 ]);
-
 const schoolRequiredProfiles = new Set([
-  'Diretor',
-  'Vice-Diretor',
-  'Coordenador Pedagógico',
-  'Secretário Escolar',
-  'Auxiliar/Assistente Administrativo',
-  'Professor',
-  'Auxiliar de Vida Escolar / Cuidador',
-  'Auxiliar de Serviços Gerais',
-  'Merendeira/Cozinheira',
-  'Porteiro/Vigia'
+  'Diretor', 'Vice-Diretor', 'Coordenador Pedagógico', 'Secretário Escolar',
+  'Auxiliar/Assistente Administrativo', 'Professor',
+  'Auxiliar de Vida Escolar / Cuidador', 'Auxiliar de Serviços Gerais',
+  'Merendeira/Cozinheira', 'Porteiro/Vigia',
 ]);
-
 const multiSchoolProfiles = new Set(['Coordenador Pedagógico']);
+const teacherProfiles = new Set(['Professor']);
 
 function httpError(statusCode, message) {
   const error = new Error(message);
@@ -78,105 +89,87 @@ function httpError(statusCode, message) {
   return error;
 }
 
-export function uniqueSchoolIds(schoolIds) {
-  return [...new Set(schoolIds.map(Number))];
+function decodePhoto(dataUrl) {
+  if (!dataUrl) return null;
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!match) throw httpError(400, 'A foto deve estar em JPG, PNG ou WebP.');
+  const bytes = Buffer.from(match[2], 'base64');
+  if (!bytes.length || bytes.length > 2 * 1024 * 1024) {
+    throw httpError(400, 'A foto deve ter no máximo 2 MB.');
+  }
+  return { bytes, mime: match[1], id: randomUUID() };
 }
 
-export function validateSchoolBindings(
-  profile,
-  schoolIds,
-  { required = false } = {},
-) {
-  if (!multiSchoolProfiles.has(profile) && schoolIds.length > 1) {
-    throw httpError(
-      400,
-      `${profile} pode ser vinculado a somente uma unidade escolar.`,
-    );
-  }
+export function uniqueSchoolIds(ids) { return [...new Set(ids.map(Number))]; }
 
-  if (required && schoolRequiredProfiles.has(profile) && schoolIds.length === 0) {
-    throw httpError(
-      400,
-      `Selecione ao menos uma unidade escolar para o perfil ${profile}.`,
-    );
+export function validateSchoolBindings(profile, ids, { required = false } = {}) {
+  if (!multiSchoolProfiles.has(profile) && ids.length > 1) {
+    throw httpError(400, `${profile} pode ser vinculado a somente uma unidade escolar.`);
+  }
+  if (required && schoolRequiredProfiles.has(profile) && ids.length === 0) {
+    throw httpError(400, `Selecione ao menos uma unidade escolar para o perfil ${profile}.`);
   }
 }
 
-async function assertSchoolsExist(client, schoolIds) {
-  if (schoolIds.length === 0) return;
-
-  const { rows } = await client.query(`
-    SELECT ARRAY_AGG(id ORDER BY id) AS ids
-    FROM escolas
-    WHERE id = ANY($1::INTEGER[])
-  `, [schoolIds]);
-
-  const existingIds = rows[0].ids || [];
-  if (existingIds.length !== schoolIds.length) {
+async function assertSchoolsExist(client, ids) {
+  if (!ids.length) return;
+  const { rows } = await client.query(
+    'SELECT ARRAY_AGG(id ORDER BY id) AS ids FROM escolas WHERE id = ANY($1::INTEGER[])',
+    [ids],
+  );
+  if ((rows[0].ids || []).length !== ids.length) {
     throw httpError(400, 'Uma ou mais unidades escolares não existem.');
   }
 }
 
-export async function syncUserSchools(client, userId, schoolIds) {
+export async function syncUserSchools(client, userId, ids) {
+  await client.query('DELETE FROM usuario_escolas WHERE usuario_id = $1', [userId]);
+  for (const schoolId of ids) {
+    await client.query(
+      'INSERT INTO usuario_escolas (usuario_id, escola_id) VALUES ($1, $2)',
+      [userId, schoolId],
+    );
+  }
   await client.query(
-    'DELETE FROM usuario_escolas WHERE usuario_id = $1',
-    [userId],
+    'UPDATE usuarios SET escola_id = $1, atualizado_em = NOW() WHERE id = $2',
+    [ids[0] || null, userId],
   );
-
-  for (const schoolId of schoolIds) {
-    await client.query(`
-      INSERT INTO usuario_escolas (usuario_id, escola_id)
-      VALUES ($1, $2)
-    `, [userId, schoolId]);
-  }
-
-  await client.query(`
-    UPDATE usuarios
-    SET escola_id = $1, atualizado_em = NOW()
-    WHERE id = $2
-  `, [schoolIds[0] || null, userId]);
 }
 
-async function findUserWithProfile(client, userId, { lock = false } = {}) {
-  const { rows } = await client.query(`
-    SELECT u.id, u.nome, t.nome AS perfil, t.nivel
-    FROM usuarios u
-    JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
-    WHERE u.id = $1
-    ${lock ? 'FOR UPDATE OF u' : ''}
-  `, [userId]);
-
-  if (!rows[0]) {
-    throw httpError(404, 'Usuário não encontrado.');
-  }
-
-  return rows[0];
-}
-
-async function findProfileByTypeId(client, typeId) {
+async function findProfile(client, id) {
   const { rows } = await client.query(`
     SELECT id, nome, nivel, grupo, escopo_acesso, requer_escola, acesso_sistema
-    FROM tipos_usuarios
-    WHERE id = $1
-  `, [typeId]);
-
-  if (!rows[0]) {
-    throw httpError(400, 'Perfil de usuário não encontrado.');
-  }
-
+    FROM tipos_usuarios WHERE id = $1
+  `, [id]);
+  if (!rows[0]) throw httpError(400, 'Perfil de usuário não encontrado.');
   return rows[0];
 }
 
-async function listLinkedSchools(client, userId) {
+async function findUser(client, id, lock = false) {
   const { rows } = await client.query(`
-    SELECT DISTINCT e.id, e.nome
-    FROM escolas e
-    JOIN usuario_escolas ue ON ue.escola_id = e.id
-    WHERE ue.usuario_id = $1
-    ORDER BY e.nome
-  `, [userId]);
+    SELECT u.id, u.nome, u.tipo_usuario_id, u.foto_id, t.nome AS perfil, t.nivel
+    FROM usuarios u JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
+    WHERE u.id = $1 ${lock ? 'FOR UPDATE OF u' : ''}
+  `, [id]);
+  if (!rows[0]) throw httpError(404, 'Usuário não encontrado.');
+  return rows[0];
+}
 
+async function listSchools(client, userId) {
+  const { rows } = await client.query(`
+    SELECT DISTINCT e.id, e.nome FROM escolas e
+    JOIN usuario_escolas ue ON ue.escola_id = e.id
+    WHERE ue.usuario_id = $1 ORDER BY e.nome
+  `, [userId]);
   return rows;
+}
+
+async function recordPermission(client, userId, typeId, ids, status, action, actorId) {
+  await client.query(`
+    INSERT INTO historico_permissoes
+      (usuario_id, tipo_usuario_id, escolas_ids, situacao_acesso, acao, realizado_por)
+    VALUES ($1, $2, $3, $4, $5, $6)
+  `, [userId, typeId, ids, status, action, actorId]);
 }
 
 router.use(authenticate, loadAccessContext, allowMunicipalAdmin);
@@ -184,242 +177,186 @@ router.use(authenticate, loadAccessContext, allowMunicipalAdmin);
 router.get('/', async (_request, response, next) => {
   try {
     const { rows } = await pool.query(`
-      SELECT
-        u.id,
-        u.nome,
-        u.cpf,
-        u.usuario,
-        u.email,
-        u.ativo,
-        u.deve_alterar_senha,
-        t.id AS "tipoUsuarioId",
-        t.nome AS perfil,
-        t.nivel,
-        COALESCE((
-          SELECT JSONB_AGG(
-            JSONB_BUILD_OBJECT('id', vinculadas.id, 'nome', vinculadas.nome)
-            ORDER BY vinculadas.nome
-          )
-          FROM (
-            SELECT DISTINCT e.id, e.nome
-            FROM escolas e
-            WHERE e.id = u.escola_id
-              OR EXISTS (
-                SELECT 1
-                FROM usuario_escolas ue
-                WHERE ue.usuario_id = u.id
-                  AND ue.escola_id = e.id
-              )
-          ) vinculadas
-        ), '[]'::JSONB) AS escolas
-      FROM usuarios u
-      JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
+      SELECT u.id, u.nome, u.nome_social AS "nomeSocial", u.cpf, u.usuario, u.email,
+        u.matricula_funcional AS "matriculaFuncional", u.cargo,
+        u.funcao_exercida AS "funcaoExercida", u.situacao_funcional AS "situacaoFuncional",
+        u.situacao_acesso AS "situacaoAcesso", u.dois_fatores_obrigatorio AS "doisFatoresObrigatorio",
+        u.dois_fatores_ativo AS "doisFatoresAtivo", u.ultimo_acesso_em AS "ultimoAcessoEm",
+        u.ativo, u.deve_alterar_senha, (u.foto_id IS NOT NULL) AS "temFoto",
+        t.id AS "tipoUsuarioId", t.nome AS perfil, t.nivel,
+        COALESCE((SELECT JSONB_AGG(JSONB_BUILD_OBJECT('id', e.id, 'nome', e.nome) ORDER BY e.nome)
+          FROM escolas e JOIN usuario_escolas ue ON ue.escola_id = e.id
+          WHERE ue.usuario_id = u.id), '[]'::JSONB) AS escolas
+      FROM usuarios u JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
       ORDER BY u.nome
     `);
+    return response.json(rows.map((row) => ({
+      ...row,
+      fotoUrl: row.temFoto ? `/api/users/${row.id}/photo` : null,
+    })));
+  } catch (error) { return next(error); }
+});
 
-    return response.json(rows);
-  } catch (error) {
-    return next(error);
-  }
+router.get('/:id/photo', async (request, response, next) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT foto_mime, foto_bytes, foto_id FROM usuarios WHERE id = $1',
+      [request.params.id],
+    );
+    if (!rows[0]?.foto_bytes) throw httpError(404, 'Foto não encontrada.');
+    response.set({
+      'Content-Type': rows[0].foto_mime,
+      'Cache-Control': 'private, max-age=300',
+      ETag: `"${rows[0].foto_id}"`,
+    });
+    return response.send(rows[0].foto_bytes);
+  } catch (error) { return next(error); }
 });
 
 router.post('/', async (request, response, next) => {
   const client = await pool.connect();
-
   try {
     const data = userSchema.parse(request.body);
-    const profile = await findProfileByTypeId(client, data.tipoUsuarioId);
+    const profile = await findProfile(client, data.tipoUsuarioId);
     if (!allowedEducationProfiles.has(profile.nome)) {
       throw httpError(400, 'Selecione um perfil válido de funcionário da educação.');
     }
-    const requestedSchoolIds = data.escolaIds !== undefined
-      ? data.escolaIds
-      : data.escolaId
-        ? [data.escolaId]
-        : [];
-    const schoolIds = uniqueSchoolIds(requestedSchoolIds);
-
+    if (data.situacaoFuncional === 'desligado' && !data.dataDesligamento) {
+      throw httpError(400, 'Informe a data de desligamento.');
+    }
+    if (data.dataDesligamento && data.dataDesligamento < data.dataAdmissao) {
+      throw httpError(400, 'A data de desligamento não pode ser anterior à admissão.');
+    }
+    if (teacherProfiles.has(profile.nome) && !data.disciplinas.length) {
+      throw httpError(400, 'Informe ao menos uma disciplina para o professor.');
+    }
+    const requestedIds = data.escolaIds ?? (data.escolaId ? [data.escolaId] : []);
+    const schoolIds = uniqueSchoolIds(requestedIds);
     validateSchoolBindings(profile.nome, schoolIds, { required: profile.requer_escola });
     await assertSchoolsExist(client, schoolIds);
-
-    const usuario = data.usuario || data.nome
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .join('.');
-    const senhaTemporaria = data.senhaTemporaria
-      || `Siedu${Math.floor(100000 + Math.random() * 900000)}`;
+    const photo = decodePhoto(data.fotoBase64);
+    const temporaryPassword = data.senhaTemporaria || `Siedu${Math.floor(100000 + Math.random() * 900000)}!`;
+    const accessStatus = profile.acesso_sistema ? data.situacaoAcesso : 'bloqueado';
 
     await client.query('BEGIN');
-
     const { rows } = await client.query(`
       INSERT INTO usuarios (
-        nome, cpf, email, usuario, senha_hash, tipo_usuario_id,
-        escola_id, deve_alterar_senha
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-      RETURNING id, nome, usuario, email, deve_alterar_senha
+        nome, nome_social, cpf, data_nascimento, genero, telefone_institucional,
+        email, email_pessoal, endereco_residencial, contato_emergencia_nome,
+        contato_emergencia_telefone, matricula_funcional, cargo, funcao_exercida,
+        tipo_vinculo, situacao_funcional, data_admissao, data_desligamento,
+        carga_horaria_semanal, turnos_trabalho, secretaria_setor, disciplinas,
+        turmas_atendidas, gestor_imediato, observacoes_administrativas, usuario,
+        senha_hash, tipo_usuario_id, escola_id, ativo, deve_alterar_senha,
+        situacao_acesso, dois_fatores_obrigatorio, foto_id, foto_mime, foto_bytes,
+        foto_atualizada_em
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+        $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37
+      ) RETURNING id, nome, usuario, email, deve_alterar_senha
     `, [
-      data.nome,
-      data.cpf,
-      data.email || null,
-      usuario,
-      await bcrypt.hash(senhaTemporaria, 12),
-      data.tipoUsuarioId,
-      schoolIds[0] || null,
-      profile.acesso_sistema,
+      data.nome, data.nomeSocial || null, data.cpf, data.dataNascimento || null,
+      data.genero || null, data.telefoneInstitucional || null, data.email || null,
+      data.emailPessoal || null, data.enderecoResidencial || null,
+      data.contatoEmergenciaNome || null, data.contatoEmergenciaTelefone || null,
+      data.matriculaFuncional, data.cargo, data.funcaoExercida, data.tipoVinculo,
+      data.situacaoFuncional, data.dataAdmissao, data.dataDesligamento || null,
+      data.cargaHorariaSemanal || null, data.turnosTrabalho, data.secretariaSetor || null,
+      data.disciplinas, data.turmasAtendidas, data.gestorImediato || null,
+      data.observacoesAdministrativas || null, data.usuario,
+      await bcrypt.hash(temporaryPassword, 12), data.tipoUsuarioId, schoolIds[0] || null,
+      accessStatus === 'ativo' || accessStatus === 'pendente', profile.acesso_sistema,
+      accessStatus, profile.nivel <= 3, photo?.id || null, photo?.mime || null,
+      photo?.bytes || null, photo ? new Date() : null,
     ]);
-
     await syncUserSchools(client, rows[0].id, schoolIds);
+    await recordPermission(client, rows[0].id, data.tipoUsuarioId, schoolIds, accessStatus, 'cadastro', request.user.sub);
+    if (photo) {
+      await client.query(`
+        INSERT INTO historico_fotos_perfil (usuario_id, foto_id, acao, realizado_por)
+        VALUES ($1, $2, 'incluida', $3)
+      `, [rows[0].id, photo.id, request.user.sub]);
+    }
     await client.query('COMMIT');
-
     return response.status(201).json({
-      user: {
-        ...rows[0],
-        perfil: profile.nome,
-        escolas: await listLinkedSchools(client, rows[0].id),
-      },
-      senhaTemporaria: profile.acesso_sistema ? senhaTemporaria : null,
+      user: { ...rows[0], perfil: profile.nome, escolas: await listSchools(client, rows[0].id) },
+      senhaTemporaria: profile.acesso_sistema ? temporaryPassword : null,
+      primeiroAcesso: profile.acesso_sistema,
+      doisFatoresObrigatorio: profile.nivel <= 3,
     });
   } catch (error) {
     await client.query('ROLLBACK');
     return next(error);
-  } finally {
-    client.release();
-  }
+  } finally { client.release(); }
+});
+
+router.patch('/:id/photo', async (request, response, next) => {
+  const client = await pool.connect();
+  try {
+    const data = photoSchema.parse(request.body);
+    const photo = decodePhoto(data.fotoBase64);
+    await client.query('BEGIN');
+    const user = await findUser(client, request.params.id, true);
+    await client.query(`
+      UPDATE usuarios SET foto_id=$1, foto_mime=$2, foto_bytes=$3,
+        foto_atualizada_em=NOW(), atualizado_em=NOW() WHERE id=$4
+    `, [photo.id, photo.mime, photo.bytes, user.id]);
+    await client.query(`
+      INSERT INTO historico_fotos_perfil (usuario_id, foto_id, acao, realizado_por)
+      VALUES ($1, $2, $3, $4)
+    `, [user.id, photo.id, user.foto_id ? 'alterada' : 'incluida', request.user.sub]);
+    await client.query('COMMIT');
+    return response.json({ fotoUrl: `/api/users/${user.id}/photo` });
+  } catch (error) { await client.query('ROLLBACK'); return next(error); }
+  finally { client.release(); }
+});
+
+router.delete('/:id/photo', async (request, response, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const user = await findUser(client, request.params.id, true);
+    await client.query(`
+      UPDATE usuarios SET foto_id=NULL, foto_mime=NULL, foto_bytes=NULL,
+        foto_atualizada_em=NOW(), atualizado_em=NOW() WHERE id=$1
+    `, [user.id]);
+    await client.query(`
+      INSERT INTO historico_fotos_perfil (usuario_id, foto_id, acao, realizado_por)
+      VALUES ($1, $2, 'removida', $3)
+    `, [user.id, user.foto_id, request.user.sub]);
+    await client.query('COMMIT');
+    return response.status(204).send();
+  } catch (error) { await client.query('ROLLBACK'); return next(error); }
+  finally { client.release(); }
 });
 
 router.patch('/:id/schools', async (request, response, next) => {
   const client = await pool.connect();
-
   try {
-    const data = schoolBindingsSchema.parse(request.body);
-    const schoolIds = uniqueSchoolIds(data.escolaIds);
-
+    const { escolaIds } = schoolBindingsSchema.parse(request.body);
+    const ids = uniqueSchoolIds(escolaIds);
     await client.query('BEGIN');
-    const user = await findUserWithProfile(client, request.params.id, {
-      lock: true,
-    });
-
-    if (!allowedEducationProfiles.has(user.perfil)) {
-      throw httpError(
-        400,
-        'A gestão de vínculos desta tela é permitida somente para os perfis de funcionários da educação.',
-      );
-    }
-
-    validateSchoolBindings(user.perfil, schoolIds);
-    await assertSchoolsExist(client, schoolIds);
-    await syncUserSchools(client, user.id, schoolIds);
+    const user = await findUser(client, request.params.id, true);
+    validateSchoolBindings(user.perfil, ids);
+    await assertSchoolsExist(client, ids);
+    await syncUserSchools(client, user.id, ids);
+    const { rows } = await client.query('SELECT situacao_acesso FROM usuarios WHERE id=$1', [user.id]);
+    await recordPermission(client, user.id, user.tipo_usuario_id, ids, rows[0].situacao_acesso, 'escolas_alteradas', request.user.sub);
     await client.query('COMMIT');
-
-    return response.json({
-      id: user.id,
-      nome: user.nome,
-      perfil: user.perfil,
-      escolas: await listLinkedSchools(client, user.id),
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    return next(error);
-  } finally {
-    client.release();
-  }
-});
-
-router.patch('/:id', async (request, response, next) => {
-  const client = await pool.connect();
-
-  try {
-    const schema = z.object({
-      nome: z.string().trim().min(3).optional(),
-      cpf: cpfSchema.optional(),
-      email: emailSchema.optional(),
-      ativo: z.boolean().optional(),
-      escolaId: z.coerce.number().int().positive().nullable().optional(),
-      tipoUsuarioId: z.coerce.number().int().positive().optional(),
-    });
-    const data = schema.parse(request.body);
-
-    await client.query('BEGIN');
-    const currentUser = await findUserWithProfile(client, request.params.id, {
-      lock: true,
-    });
-    const nextProfile = data.tipoUsuarioId
-      ? await findProfileByTypeId(client, data.tipoUsuarioId)
-      : { nome: currentUser.perfil };
-
-    if (data.tipoUsuarioId && !Object.hasOwn(data, 'escolaId')) {
-      const currentSchools = await listLinkedSchools(client, currentUser.id);
-      validateSchoolBindings(
-        nextProfile.nome,
-        currentSchools.map((school) => school.id),
-      );
-    }
-
-    const { rows } = await client.query(`
-      UPDATE usuarios
-      SET
-        nome = COALESCE($1, nome),
-        cpf = COALESCE($2, cpf),
-        email = COALESCE($3, email),
-        ativo = COALESCE($4, ativo),
-        tipo_usuario_id = COALESCE($5, tipo_usuario_id),
-        atualizado_em = NOW()
-      WHERE id = $6
-      RETURNING id, nome, cpf, email, ativo
-    `, [
-      data.nome || null,
-      data.cpf || null,
-      data.email || null,
-      data.ativo ?? null,
-      data.tipoUsuarioId || null,
-      request.params.id,
-    ]);
-
-    if (Object.hasOwn(data, 'escolaId')) {
-      const schoolIds = data.escolaId ? [data.escolaId] : [];
-      validateSchoolBindings(nextProfile.nome, schoolIds);
-      await assertSchoolsExist(client, schoolIds);
-      await syncUserSchools(client, currentUser.id, schoolIds);
-    }
-
-    await client.query('COMMIT');
-    return response.json(rows[0]);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    return next(error);
-  } finally {
-    client.release();
-  }
+    return response.json({ id: user.id, nome: user.nome, perfil: user.perfil, escolas: await listSchools(client, user.id) });
+  } catch (error) { await client.query('ROLLBACK'); return next(error); }
+  finally { client.release(); }
 });
 
 router.delete('/:id', async (request, response, next) => {
   try {
     if (Number(request.params.id) === request.user.sub) {
-      return response.status(400).json({
-        message: 'Você não pode excluir seu próprio usuário.',
-      });
+      return response.status(400).json({ message: 'Você não pode excluir seu próprio usuário.' });
     }
-
-    const { rowCount } = await pool.query(
-      'DELETE FROM usuarios WHERE id = $1',
-      [request.params.id],
-    );
-
-    if (!rowCount) {
-      return response.status(404).json({
-        message: 'Usuário não encontrado.',
-      });
-    }
-
+    const { rowCount } = await pool.query('DELETE FROM usuarios WHERE id = $1', [request.params.id]);
+    if (!rowCount) return response.status(404).json({ message: 'Usuário não encontrado.' });
     return response.status(204).send();
-  } catch (error) {
-    return next(error);
-  }
+  } catch (error) { return next(error); }
 });
 
 export default router;
