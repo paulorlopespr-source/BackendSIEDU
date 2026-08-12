@@ -24,6 +24,7 @@ const migrations = [
   '21_importacao_cm_antonio_joaquim.sql',
   '22_perfil_vice_diretor.sql',
   '23_email_usuario_opcional.sql',
+  '24_perfis_funcionarios_educacao.sql',
 ];
 
 await pool.query(`
