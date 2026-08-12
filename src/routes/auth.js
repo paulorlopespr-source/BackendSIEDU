@@ -121,7 +121,7 @@ router.post('/recuperar-senha', recoveryLimiter, async (request, response, next)
         VALUES ($1,$2,$3)
       `, [
         user.email,
-        'Código de recuperação de senha — SIEPIN',
+        'Código de recuperação de senha — SIEDU',
         `Olá, ${user.nome}. Seu código de recuperação é ${code}. Ele expira em 15 minutos.`,
       ]);
       await client.query('COMMIT');
