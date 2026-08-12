@@ -13,7 +13,7 @@ WITH perfil AS (
   )
   SELECT
     'Mariana Souza - Perfil de Teste',
-    '529.982.247-25',
+    '52998224725',
     'teste.secretaria@siedu.local',
     '$2b$12$GjipzWvFpxqrBpjKGMwGYepOmzGuKIVjYxXl/C0pvjGH2K3fJQXrG',
     perfil.id,
@@ -38,7 +38,7 @@ WITH perfil AS (
     SELECT 1
     FROM usuarios
     WHERE LOWER(usuario) = LOWER('teste.secretaria.2026')
-       OR cpf = '529.982.247-25'
+       OR cpf = '52998224725'
        OR LOWER(email) = LOWER('teste.secretaria@siedu.local')
        OR LOWER(matricula_funcional) = LOWER('TESTE-SEC-001')
   )
