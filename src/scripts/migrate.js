@@ -41,6 +41,7 @@ const migrations = [
   '38_avaliacoes_notas_professor.sql',
   '39_planejamento_aula_professor.sql',
   '40_atividades_avaliacoes_calendario.sql',
+  '41_banco_questoes_provas.sql',
 ];
 
 await pool.query(`
