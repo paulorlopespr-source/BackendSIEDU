@@ -9,6 +9,9 @@ export async function loadAccessContext(request, response, next) {
         u.ativo,
         t.nome AS perfil,
         t.nivel,
+        t.grupo,
+        t.escopo_acesso,
+        t.acesso_sistema,
         ARRAY_REMOVE(
           ARRAY_AGG(DISTINCT COALESCE(ue.escola_id, u.escola_id)),
           NULL
@@ -17,7 +20,7 @@ export async function loadAccessContext(request, response, next) {
       JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
       LEFT JOIN usuario_escolas ue ON ue.usuario_id = u.id
       WHERE u.id = $1
-      GROUP BY u.id, t.nome, t.nivel
+      GROUP BY u.id, t.nome, t.nivel, t.grupo, t.escopo_acesso, t.acesso_sistema
     `, [request.user.sub]);
 
     const access = rows[0];
@@ -30,8 +33,11 @@ export async function loadAccessContext(request, response, next) {
       nome: access.nome,
       perfil: access.perfil,
       nivel: access.nivel,
+      grupo: access.grupo,
+      escopo: access.escopo_acesso,
+      acessoSistema: access.acesso_sistema,
       escolas: access.escolas_permitidas || [],
-      municipal: access.nivel <= 2,
+      municipal: access.nivel === 1 || access.escopo_acesso === 'municipal_total',
     };
     return next();
   } catch (error) {
@@ -59,10 +65,10 @@ export function allowSchoolStaff(request, response, next) {
 
 export function allowAcademicManagement(request, response, next) {
   const allowedProfiles = new Set([
+    'Coordenador Pedagógico Municipal',
     'Diretor',
-    'Vice-diretor',
-    'Coordenador',
-    'Secretaria Escolar',
+    'Vice-Diretor',
+    'Coordenador Pedagógico',
     'Secretário Escolar',
   ]);
 
