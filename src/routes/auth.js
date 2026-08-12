@@ -46,7 +46,8 @@ router.post('/login', loginLimiter, async (request, response, next) => {
     const { rows } = await pool.query(`
       SELECT
         u.id, u.nome, u.usuario, u.email, u.senha_hash,
-        u.deve_alterar_senha, u.ativo, t.nome AS perfil, t.nivel
+        u.deve_alterar_senha, u.ativo, t.nome AS perfil, t.nivel,
+        t.grupo, t.escopo_acesso, t.acesso_sistema
       FROM usuarios u
       JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
       WHERE LOWER(u.usuario) = LOWER($1) OR LOWER(u.email) = LOWER($1)
@@ -58,8 +59,12 @@ router.post('/login', loginLimiter, async (request, response, next) => {
       return response.status(401).json({ message: 'Usuário ou senha inválidos.' });
     }
 
+    if (!user.acesso_sistema) {
+      return response.status(403).json({ message: 'Este perfil é apenas cadastral e não possui acesso operacional ao portal.' });
+    }
+
     const token = jwt.sign(
-      { sub: user.id, nome: user.nome, perfil: user.perfil, nivel: user.nivel },
+      { sub: user.id, nome: user.nome, perfil: user.perfil, nivel: user.nivel, escopo: user.escopo_acesso },
       process.env.JWT_SECRET,
       {
         algorithm: 'HS256',
@@ -77,6 +82,9 @@ router.post('/login', loginLimiter, async (request, response, next) => {
         usuario: user.usuario,
         email: user.email,
         perfil: user.perfil,
+        nivel: user.nivel,
+        grupo: user.grupo,
+        escopoAcesso: user.escopo_acesso,
         deveAlterarSenha: user.deve_alterar_senha,
       },
     });
