@@ -35,16 +35,42 @@ const schoolBindingsSchema = z.object({
   escolaIds: z.array(z.coerce.number().int().positive()).max(100),
 });
 
-const managedSchoolProfiles = new Set([
-  'Motorista',
-  'Auxiliar de Serviços Gerais',
-  'Auxiliar de Vida Escolar (AVE)',
-  'Secretaria Administrativa',
-  'Secretaria Escolar',
+const allowedEducationProfiles = new Set([
+  'Secretário Municipal de Educação',
+  'Superintendente / Diretor de Ensino',
+  'Coordenador Pedagógico Municipal',
+  'Técnico da Secretaria de Educação',
   'Diretor',
-  'Coordenador',
+  'Vice-Diretor',
+  'Coordenador Pedagógico',
+  'Secretário Escolar',
+  'Auxiliar/Assistente Administrativo',
   'Professor',
+  'Auxiliar de Vida Escolar / Cuidador',
+  'Auxiliar de Serviços Gerais',
+  'Motorista',
+  'Monitor de Transporte Escolar',
+  'Merendeira/Cozinheira',
+  'Porteiro/Vigia',
+  'Psicólogo',
+  'Assistente Social',
+  'Nutricionista'
 ]);
+
+const schoolRequiredProfiles = new Set([
+  'Diretor',
+  'Vice-Diretor',
+  'Coordenador Pedagógico',
+  'Secretário Escolar',
+  'Auxiliar/Assistente Administrativo',
+  'Professor',
+  'Auxiliar de Vida Escolar / Cuidador',
+  'Auxiliar de Serviços Gerais',
+  'Merendeira/Cozinheira',
+  'Porteiro/Vigia'
+]);
+
+const multiSchoolProfiles = new Set(['Coordenador Pedagógico']);
 
 function httpError(statusCode, message) {
   const error = new Error(message);
@@ -61,14 +87,14 @@ export function validateSchoolBindings(
   schoolIds,
   { required = false } = {},
 ) {
-  if (profile !== 'Coordenador' && schoolIds.length > 1) {
+  if (!multiSchoolProfiles.has(profile) && schoolIds.length > 1) {
     throw httpError(
       400,
       `${profile} pode ser vinculado a somente uma unidade escolar.`,
     );
   }
 
-  if (required && managedSchoolProfiles.has(profile) && schoolIds.length === 0) {
+  if (required && schoolRequiredProfiles.has(profile) && schoolIds.length === 0) {
     throw httpError(
       400,
       `Selecione ao menos uma unidade escolar para o perfil ${profile}.`,
@@ -129,7 +155,7 @@ async function findUserWithProfile(client, userId, { lock = false } = {}) {
 
 async function findProfileByTypeId(client, typeId) {
   const { rows } = await client.query(`
-    SELECT id, nome, nivel
+    SELECT id, nome, nivel, grupo, escopo_acesso, requer_escola, acesso_sistema
     FROM tipos_usuarios
     WHERE id = $1
   `, [typeId]);
@@ -203,7 +229,7 @@ router.post('/', async (request, response, next) => {
   try {
     const data = userSchema.parse(request.body);
     const profile = await findProfileByTypeId(client, data.tipoUsuarioId);
-    if (!managedSchoolProfiles.has(profile.nome)) {
+    if (!allowedEducationProfiles.has(profile.nome)) {
       throw httpError(400, 'Selecione um perfil válido de funcionário da educação.');
     }
     const requestedSchoolIds = data.escolaIds !== undefined
@@ -213,7 +239,7 @@ router.post('/', async (request, response, next) => {
         : [];
     const schoolIds = uniqueSchoolIds(requestedSchoolIds);
 
-    validateSchoolBindings(profile.nome, schoolIds, { required: true });
+    validateSchoolBindings(profile.nome, schoolIds, { required: profile.requer_escola });
     await assertSchoolsExist(client, schoolIds);
 
     const usuario = data.usuario || data.nome
@@ -277,7 +303,7 @@ router.patch('/:id/schools', async (request, response, next) => {
       lock: true,
     });
 
-    if (!managedSchoolProfiles.has(user.perfil)) {
+    if (!allowedEducationProfiles.has(user.perfil)) {
       throw httpError(
         400,
         'A gestão de vínculos desta tela é permitida somente para os perfis de funcionários da educação.',
