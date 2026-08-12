@@ -260,7 +260,7 @@ router.post('/', async (request, response, next) => {
       INSERT INTO usuarios (
         nome, cpf, email, usuario, senha_hash, tipo_usuario_id,
         escola_id, deve_alterar_senha
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING id, nome, usuario, email, deve_alterar_senha
     `, [
       data.nome,
@@ -270,6 +270,7 @@ router.post('/', async (request, response, next) => {
       await bcrypt.hash(senhaTemporaria, 12),
       data.tipoUsuarioId,
       schoolIds[0] || null,
+      profile.acesso_sistema,
     ]);
 
     await syncUserSchools(client, rows[0].id, schoolIds);
@@ -281,7 +282,7 @@ router.post('/', async (request, response, next) => {
         perfil: profile.nome,
         escolas: await listLinkedSchools(client, rows[0].id),
       },
-      senhaTemporaria,
+      senhaTemporaria: profile.acesso_sistema ? senhaTemporaria : null,
     });
   } catch (error) {
     await client.query('ROLLBACK');
