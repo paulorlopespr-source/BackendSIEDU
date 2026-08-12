@@ -32,6 +32,7 @@ const migrations = [
   '29_usuario_teste_secretario_exclusivo.sql',
   '30_usuario_teste_superintendente.sql',
   '31_usuario_teste_coordenador.sql',
+  '32_usuario_teste_diretor.sql',
 ];
 
 await pool.query(`
