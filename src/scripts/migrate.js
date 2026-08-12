@@ -37,6 +37,7 @@ const migrations = [
   '34_historico_aluno_professor.sql',
   '35_vinculo_turma_professor_teste.sql',
   '36_dados_teste_turmas_professor.sql',
+  '37_diario_classe_professor.sql',
 ];
 
 await pool.query(`
