@@ -45,6 +45,7 @@ const migrations = [
   '42_materiais_aula.sql',
   '43_competencias_relatorios_professor.sql',
   '44_calendario_escolar_professor.sql',
+  '45_eventos_alunos_calendario.sql',
 ];
 
 await pool.query(`
