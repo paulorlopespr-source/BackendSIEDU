@@ -24,4 +24,5 @@ export const migrations = [
   '50_gestao_municipal_integrada.sql',
   '51_serie_historica_ideb_pindobacu.sql',
   '52_fluxo_demandas_escolares.sql',
+  '53_usuarios_teste_fluxo_demandas.sql',
 ];
