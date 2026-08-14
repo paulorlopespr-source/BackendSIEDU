@@ -16,6 +16,19 @@ router.get('/materials',async(request,response,next)=>{try{
  let result;
  if(request.access.perfil==='Professor'){
   result=turmaId?await pool.query(base+' AND p.usuario_id=$1 AND m.turma_id=$2 ORDER BY m.criado_em DESC,m.id DESC',[request.access.userId,turmaId]):await pool.query(base+' AND p.usuario_id=$1 ORDER BY m.criado_em DESC,m.id DESC',[request.access.userId]);
+ }else if(request.access.perfil==='Aluno'){
+  const studentScope=` AND EXISTS (
+    SELECT 1
+    FROM alunos aluno
+    JOIN matriculas matricula ON matricula.aluno_id=aluno.id
+    WHERE aluno.usuario_id=$1
+      AND aluno.ativo=TRUE
+      AND matricula.status='Ativa'
+      AND matricula.turma_id=m.turma_id
+  )`;
+  result=turmaId
+   ?await pool.query(base+studentScope+' AND m.turma_id=$2 ORDER BY m.criado_em DESC,m.id DESC',[request.access.userId,turmaId])
+   :await pool.query(base+studentScope+' ORDER BY m.criado_em DESC,m.id DESC',[request.access.userId]);
  }else{
   result=turmaId?await pool.query(base+' AND m.turma_id=$1 ORDER BY m.criado_em DESC,m.id DESC',[turmaId]):await pool.query(base+' ORDER BY m.criado_em DESC,m.id DESC');
  }
