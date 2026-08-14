@@ -6,6 +6,7 @@ import { loadAccessContext } from '../middlewares/access.js';
 import {
   canDefineSaeb,
   canEditRevisionTrails,
+  hasMunicipalLearningScope,
   isLearningCoordinator,
   isLearningProfessor,
   schoolGradeNumber,
@@ -63,6 +64,7 @@ const isProfessor = (request) => isLearningProfessor(request.access);
 const isCoordinator = (request) => isLearningCoordinator(request.access);
 const canManageTrails = (request) => canEditRevisionTrails(request.access);
 const canManageSaeb = (request) => canDefineSaeb(request.access);
+const hasMunicipalScope = (request) => hasMunicipalLearningScope(request.access);
 
 function fail(statusCode, message) {
   const error = new Error(message);
@@ -85,7 +87,7 @@ async function classAccess(request, classId, discipline = null) {
     return rows[0] || null;
   }
 
-  if (!request.access?.municipal) {
+  if (!hasMunicipalScope(request)) {
     const school = await pool.query('SELECT escola_id FROM turmas WHERE id = $1', [classId]);
     if (!school.rows[0] || !request.access?.escolas.includes(Number(school.rows[0].escola_id))) return null;
   }
@@ -112,8 +114,8 @@ async function listClasses(request) {
     return rows;
   }
 
-  const params = request.access?.municipal ? [] : [request.access?.escolas || []];
-  const filter = request.access?.municipal ? '' : 'AND t.escola_id = ANY($1::int[])';
+  const params = hasMunicipalScope(request) ? [] : [request.access?.escolas || []];
+  const filter = hasMunicipalScope(request) ? '' : 'AND t.escola_id = ANY($1::int[])';
   const { rows } = await pool.query(`
     SELECT t.id, t.nome, t.serie_ano AS "serieAno", t.turno,
       NULL::text AS disciplina
@@ -137,8 +139,12 @@ router.get('/management', async (request, response, next) => {
     const trailFilter = isProfessor(request)
       ? 'AND (tr.criado_por = $1 OR tr.turma_id = ANY($2::bigint[]))'
       : classIds.length ? 'AND tr.turma_id = ANY($1::bigint[])' : 'AND FALSE';
-    const cycleParams = isProfessor(request) ? [request.access.userId] : [classIds];
-    const trailParams = isProfessor(request) ? [request.access.userId, classIds] : [classIds];
+    const cycleParams = isProfessor(request)
+      ? [request.access.userId]
+      : classIds.length ? [classIds] : [];
+    const trailParams = isProfessor(request)
+      ? [request.access.userId, classIds]
+      : classIds.length ? [classIds] : [];
 
     const [cycles, trails, simulations] = await Promise.all([
       pool.query(`

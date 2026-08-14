@@ -7,6 +7,9 @@ export const saebEditorProfiles = new Set([
 
 export const isLearningProfessor = (access) => access?.perfil === 'Professor';
 export const isLearningCoordinator = (access) => /coordenador.*pedagógico/i.test(access?.perfil || '');
+export const hasMunicipalLearningScope = (access) => Boolean(
+  access?.municipal || access?.perfil === 'Coordenador Pedagógico Municipal',
+);
 export const canEditRevisionTrails = (access) => isLearningProfessor(access) || isLearningCoordinator(access);
 export const canDefineSaeb = (access) => saebEditorProfiles.has(access?.perfil);
 
