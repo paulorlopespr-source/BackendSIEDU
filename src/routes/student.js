@@ -93,9 +93,10 @@ router.get('/portal', async (request, response, next) => {
           m.descricao,
           m.conteudo_texto AS "conteudoTexto",
           m.url_externa AS "urlExterna",
-          m.arquivo_dados AS "arquivoDados",
           m.arquivo_nome AS "arquivoNome",
           m.arquivo_mime AS "arquivoMime",
+          (m.arquivo_bytes IS NOT NULL OR m.arquivo_dados IS NOT NULL) AS "possuiArquivo",
+          COALESCE(m.arquivo_tamanho, OCTET_LENGTH(m.arquivo_bytes), LENGTH(m.arquivo_dados), 0)::INTEGER AS "arquivoTamanho",
           m.componente_curricular AS disciplina,
           m.criado_em AS "criadoEm",
           p.nome_completo AS professor
