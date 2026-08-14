@@ -88,6 +88,79 @@ router.get('/overview', requireMunicipal, async (request, response, next) => {
   } catch (error) { return next(error); }
 });
 
+router.get('/ideb/analysis', requireMunicipal, async (request, response, next) => {
+  try {
+    const currentYear = new Date().getFullYear();
+    const periodStart = currentYear - 11;
+    const { rows } = await pool.query(`
+      WITH network_results AS (
+        SELECT ano, etapa,
+          COALESCE(
+            MAX(valor) FILTER (WHERE escola_id IS NULL),
+            ROUND(AVG(valor) FILTER (WHERE escola_id IS NOT NULL)::numeric, 2)
+          )::float8 AS valor,
+          COALESCE(
+            MAX(meta) FILTER (WHERE escola_id IS NULL),
+            ROUND(AVG(meta) FILTER (WHERE escola_id IS NOT NULL)::numeric, 2)
+          )::float8 AS meta,
+          COALESCE(
+            MAX(fonte) FILTER (WHERE escola_id IS NULL),
+            'Média das escolas da rede'
+          ) AS fonte,
+          MAX(fonte_url) FILTER (WHERE escola_id IS NULL) AS "fonteUrl"
+        FROM resultados_ideb
+        WHERE ano BETWEEN $1 AND $2
+        GROUP BY ano, etapa
+      )
+      SELECT ano, etapa, valor, meta, fonte, "fonteUrl"
+      FROM network_results
+      WHERE valor IS NOT NULL
+      ORDER BY ano, etapa
+    `, [periodStart, currentYear]);
+
+    const stages = [...new Set(rows.map((item) => item.etapa))];
+    const summaries = [];
+    const series = stages.map((stage) => {
+      const results = rows.filter((item) => item.etapa === stage);
+      const first = results[0];
+      const latest = results.at(-1);
+      const previous = results.at(-2);
+      summaries.push({
+        stage,
+        firstYear: first?.ano || null,
+        firstValue: first?.valor ?? null,
+        latestYear: latest?.ano || null,
+        latestValue: latest?.valor ?? null,
+        decennialVariation: first && latest ? Number((latest.valor - first.valor).toFixed(2)) : null,
+        lastCycleVariation: previous && latest ? Number((latest.valor - previous.valor).toFixed(2)) : null,
+        targetReached: latest?.meta == null ? null : latest.valor >= latest.meta,
+      });
+      return {
+        stage,
+        values: results.map((item) => ({
+          year: item.ano,
+          value: item.valor,
+          target: item.meta,
+          source: item.fonte,
+          sourceUrl: item.fonteUrl,
+        })),
+      };
+    });
+
+    return response.json({
+      currentSchoolYear: currentYear,
+      periodStart,
+      periodEnd: currentYear,
+      latestOfficialYear: rows.length ? Math.max(...rows.map((item) => item.ano)) : null,
+      periodicity: 'bienal',
+      series,
+      summaries,
+      source: 'INEP/MEC e IBGE',
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) { return next(error); }
+});
+
 router.get('/ideb', async (request, response, next) => {
   try {
     const params = [];
