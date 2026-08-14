@@ -20,4 +20,5 @@ export const migrations = [
   '42_materiais_aula.sql', '43_competencias_relatorios_professor.sql',
   '44_calendario_escolar_professor.sql', '45_eventos_alunos_calendario.sql',
   '46_portal_aluno.sql', '47_aprendizagem_ciclos_trilhas_saeb.sql',
+  '48_calendario_escolar_aluno.sql',
 ];
