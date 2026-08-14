@@ -3,6 +3,7 @@ import { pool } from '../database.js';
 import { authenticate } from '../middlewares/auth.js';
 import { loadAccessContext } from '../middlewares/access.js';
 import { isStudentProfile, studentContextSql } from '../student-access.js';
+import { calendarEvent } from '../student-calendar.js';
 
 const router = Router();
 router.use(authenticate, loadAccessContext);
@@ -58,7 +59,7 @@ router.get('/portal', async (request, response, next) => {
     const params = [student.turmaId, student.alunoId];
     const [subjects, schedule, materials, plannedActivities, personalActivities,
       gradesResult, attendanceResult, calendarResult, notificationsResult,
-      cycleResults, trailsResult, saebResult] = await Promise.all([
+      cycleResults, trailsResult, saebResult, schoolCalendarResult] = await Promise.all([
       pool.query(`
         SELECT
           tp.componente_curricular AS disciplina,
@@ -250,6 +251,21 @@ router.get('/portal', async (request, response, next) => {
           AND (s.turma_id = $1 OR (s.turma_id IS NULL AND (s.serie_ano IS NULL OR LOWER(s.serie_ano) = LOWER($3))))
         ORDER BY s.data_aplicacao, s.id
       `, [student.turmaId, student.alunoId, student.serieAno]),
+      pool.query(`
+        SELECT id, titulo, tipo, disciplina,
+          data_inicio AS "dataInicio", data_fim AS "dataFim",
+          TO_CHAR(hora_inicio, 'HH24:MI') AS "horaInicio",
+          TO_CHAR(hora_fim, 'HH24:MI') AS "horaFim",
+          observacao, destaque, escopo
+        FROM eventos_calendario_escolar
+        WHERE publicado = TRUE
+          AND (
+            escopo = 'Rede'
+            OR (escopo = 'Escola' AND escola_id = $1)
+            OR (escopo = 'Turma' AND turma_id = $2)
+          )
+        ORDER BY data_inicio, hora_inicio, id
+      `, [student.escolaId, student.turmaId]),
     ]);
 
     const grades = gradesResult.rows.map((grade) => ({
@@ -300,6 +316,48 @@ router.get('/portal', async (request, response, next) => {
     const learningPending = pending.length
       + cycleResults.rows.filter((item) => item.status === 'Publicada' && item.pontos == null).length
       + trailsResult.rows.filter((item) => item.status !== 'Concluída').length;
+    const plannedKeys = new Set(plannedActivities.rows.map((item) => (
+      `${String(item.titulo).toLowerCase()}|${String(item.disciplina || '').toLowerCase()}|${String(item.prazo).slice(0, 10)}`
+    )));
+    const standaloneAssessments = gradesResult.rows.filter((item) => !plannedKeys.has(
+      `${String(item.titulo).toLowerCase()}|${String(item.disciplina || '').toLowerCase()}|${String(item.data).slice(0, 10)}`,
+    ));
+    const calendarItems = [
+      ...schoolCalendarResult.rows.map((item) => calendarEvent('institucional', item, { origem: item.escopo })),
+      ...plannedActivities.rows.map((item) => calendarEvent('atividade', item, {
+        dataInicio: item.prazo,
+        origem: 'Professor',
+      })),
+      ...personalActivities.rows.map((item) => calendarEvent('atividade-aluno', item, {
+        dataInicio: item.prazo,
+        origem: 'Aluno',
+      })),
+      ...standaloneAssessments.map((item) => calendarEvent('avaliacao', item, {
+        dataInicio: item.data,
+        tipo: item.tipo || 'Avaliação',
+        origem: 'Professor',
+      })),
+      ...calendarResult.rows.map((item) => calendarEvent('evento-professor', item, {
+        dataInicio: item.data,
+        origem: 'Professor',
+      })),
+      ...cycleResults.rows.map((item) => calendarEvent('ciclo', item, {
+        dataInicio: item.dataInicio,
+        dataFim: item.dataFim,
+        tipo: 'Avaliação de Ciclo',
+        origem: 'Professor',
+      })),
+      ...saebResult.rows.map((item) => calendarEvent('saeb', item, {
+        dataInicio: item.dataAplicacao,
+        tipo: 'Simulado SAEB',
+        origem: 'Secretaria Municipal',
+        escopo: item.serieAno ? 'Série/Ano' : 'Rede',
+      })),
+    ].sort((left, right) => (
+      String(left.dataInicio).localeCompare(String(right.dataInicio))
+      || String(left.horaInicio || '').localeCompare(String(right.horaInicio || ''))
+      || left.titulo.localeCompare(right.titulo)
+    ));
 
     return response.json({
       aluno: student,
@@ -317,10 +375,7 @@ router.get('/portal', async (request, response, next) => {
           ? Number((((classCount - absenceCount) / classCount) * 100).toFixed(1))
           : 100,
       },
-      calendario: [
-        ...plannedActivities.rows.map((item) => ({ ...item, data: item.prazo, origem: 'Atividade' })),
-        ...calendarResult.rows.map((item) => ({ ...item, origem: 'Evento' })),
-      ].sort((left, right) => String(left.data).localeCompare(String(right.data))),
+      calendario: calendarItems,
       notificacoes: notificationsResult.rows,
       avaliacoesCiclo: cycleResults.rows,
       trilhasRevisao: trailsResult.rows,
