@@ -26,4 +26,5 @@ export const migrations = [
   '52_fluxo_demandas_escolares.sql',
   '53_usuarios_teste_fluxo_demandas.sql',
   '54_bloquear_usuarios_teste_fluxo_demandas.sql',
+  '55_anexos_demandas_escolares.sql',
 ];

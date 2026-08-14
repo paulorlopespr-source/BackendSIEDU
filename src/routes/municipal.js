@@ -11,6 +11,10 @@ import {
   statusForSecretaryDecision,
   urgencyColor,
 } from '../demand-workflow.js';
+import {
+  decodeDemandAttachment,
+  demandAttachmentDisposition,
+} from '../demand-attachments.js';
 
 const router = Router();
 router.use(authenticate, loadAccessContext);
@@ -267,7 +271,11 @@ router.get('/demands', async (request, response, next) => {
           'id',h.id,'mensagem',h.mensagem,'statusAnterior',h.status_anterior,
           'statusNovo',h.status_novo,'usuario',u.nome,'criadoEm',h.criado_em
         ) ORDER BY h.criado_em) FROM historico_demandas_municipais h
-          LEFT JOIN usuarios u ON u.id=h.usuario_id WHERE h.demanda_id=d.id),'[]'::json) AS historico
+          LEFT JOIN usuarios u ON u.id=h.usuario_id WHERE h.demanda_id=d.id),'[]'::json) AS historico,
+        COALESCE((SELECT JSON_AGG(JSON_BUILD_OBJECT(
+          'id',a.id,'nome',a.nome_arquivo,'mime',a.mime,'tamanho',a.tamanho,'criadoEm',a.criado_em
+        ) ORDER BY a.criado_em) FROM anexos_demandas_municipais a
+          WHERE a.demanda_id=d.id),'[]'::json) AS anexos
       FROM demandas_municipais d
       JOIN escolas e ON e.id=d.escola_id
       LEFT JOIN usuarios ur ON ur.id=d.responsavel_id
@@ -295,20 +303,61 @@ router.post('/demands', async (request, response, next) => {
       descricao: z.string().trim().min(10).max(5000),
       prioridade: z.enum(['Baixa', 'Normal', 'Alta']),
       prazo: z.string().date().nullable().optional(),
+      anexo: z.object({
+        nome: z.string().trim().min(1).max(255),
+        dados: z.string().min(1).max(7_000_000),
+      }).nullable().optional(),
     }).parse(request.body);
     if (!(request.access.escolas || []).includes(data.escolaId)) {
       return response.status(403).json({ message: 'Você não pode abrir demanda para esta escola.' });
+    }
+    let attachment;
+    try {
+      attachment = decodeDemandAttachment(data.anexo);
+    } catch (attachmentError) {
+      return response.status(400).json({ message: attachmentError.message });
     }
     await client.query('BEGIN');
     const { rows } = await client.query(`
       INSERT INTO demandas_municipais(escola_id,titulo,categoria,descricao,prioridade,prazo,criado_por)
       VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,status
     `, [data.escolaId, data.titulo, data.categoria, data.descricao, data.prioridade, data.prazo || null, request.access.userId]);
+    if (attachment) {
+      await client.query(`
+        INSERT INTO anexos_demandas_municipais(demanda_id,nome_arquivo,mime,tamanho,conteudo,enviado_por)
+        VALUES($1,$2,$3,$4,$5,$6)
+      `, [rows[0].id, attachment.nome, attachment.mime, attachment.bytes.length, attachment.bytes, request.access.userId]);
+    }
     await client.query(`INSERT INTO historico_demandas_municipais(demanda_id,usuario_id,status_novo,mensagem) VALUES($1,$2,$3,$4)`, [rows[0].id, request.access.userId, rows[0].status, `Demanda enviada pela Direção: ${data.descricao}`]);
     await client.query(`INSERT INTO notificacoes_demandas(demanda_id,destinatario_setor,titulo,mensagem,cor) VALUES($1,'Secretaria de Educação',$2,$3,$4)`, [rows[0].id, `Nova demanda: ${data.titulo}`, `${data.prioridade} · ${data.categoria}`, urgencyColor(data.prioridade)]);
     await client.query('COMMIT');
     return response.status(201).json({ id: rows[0].id, status: rows[0].status, message: 'Demanda enviada à Secretaria de Educação.' });
   } catch (error) { await client.query('ROLLBACK'); return next(error); } finally { client.release(); }
+});
+
+router.get('/demands/:demandId/attachments/:attachmentId', async (request, response, next) => {
+  try {
+    const demandId = z.coerce.number().int().positive().parse(request.params.demandId);
+    const attachmentId = z.coerce.number().int().positive().parse(request.params.attachmentId);
+    const { rows } = await pool.query(`
+      SELECT a.nome_arquivo,a.mime,a.conteudo,d.escola_id,d.status
+      FROM anexos_demandas_municipais a
+      JOIN demandas_municipais d ON d.id=a.demanda_id
+      WHERE a.id=$1 AND a.demanda_id=$2
+    `, [attachmentId, demandId]);
+    const item = rows[0];
+    if (!item) return response.status(404).json({ message: 'Anexo não encontrado.' });
+
+    const allowed = canDecideSchoolDemand(request.access)
+      || (canExecuteSchoolDemand(request.access) && ['Autorizada para execução', 'Pendente na Administração', 'Demanda resolvida'].includes(item.status))
+      || (canCreateSchoolDemand(request.access) && (request.access.escolas || []).includes(Number(item.escola_id)));
+    if (!allowed) return response.status(403).json({ message: 'Sem permissão para baixar este anexo.' });
+
+    response.set('Content-Type', item.mime || 'application/octet-stream');
+    response.set('Content-Disposition', demandAttachmentDisposition(item.nome_arquivo));
+    response.set('Cache-Control', 'private, no-store');
+    return response.send(item.conteudo);
+  } catch (error) { return next(error); }
 });
 
 router.post('/demands/:id/decision', async (request, response, next) => {
