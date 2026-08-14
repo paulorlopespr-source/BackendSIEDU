@@ -14,20 +14,24 @@ const managementProfiles = new Set([
   'Coordenador Pedagógico Municipal',
 ]);
 
+function hasMunicipalScope(request) {
+  return Boolean(request.access?.municipal || managementProfiles.has(request.access?.perfil));
+}
+
 function requireMunicipal(request, response, next) {
-  if (!request.access?.municipal) return response.status(403).json({ message: 'Acesso exclusivo da gestão municipal.' });
+  if (!hasMunicipalScope(request)) return response.status(403).json({ message: 'Acesso exclusivo da gestão municipal.' });
   return next();
 }
 
 function requireMunicipalManagement(request, response, next) {
-  if (!request.access?.municipal || !managementProfiles.has(request.access.perfil)) {
+  if (!managementProfiles.has(request.access?.perfil)) {
     return response.status(403).json({ message: 'Seu perfil não pode alterar registros da gestão municipal.' });
   }
   return next();
 }
 
 function schoolScope(request, alias = 'e') {
-  if (request.access.municipal) return { sql: '', params: [] };
+  if (hasMunicipalScope(request)) return { sql: '', params: [] };
   return { sql: `WHERE ${alias}.id = ANY($1::int[])`, params: [request.access.escolas] };
 }
 
@@ -88,7 +92,7 @@ router.get('/ideb', async (request, response, next) => {
   try {
     const params = [];
     const clauses = [];
-    if (!request.access.municipal) { params.push(request.access.escolas); clauses.push(`ri.escola_id=ANY($${params.length}::int[])`); }
+    if (!hasMunicipalScope(request)) { params.push(request.access.escolas); clauses.push(`ri.escola_id=ANY($${params.length}::int[])`); }
     if (request.query.ano) { params.push(Number(request.query.ano)); clauses.push(`ri.ano=$${params.length}`); }
     const { rows } = await pool.query(`
       SELECT ri.id,ri.escola_id AS "escolaId",e.nome AS escola,ri.codigo_inep AS "codigoInep",ri.ano,ri.etapa,
@@ -136,7 +140,7 @@ router.get('/meetings', async (request, response, next) => {
   try {
     const params = [];
     let where = '';
-    if (!request.access.municipal) { params.push(request.access.escolas); where=`WHERE (r.escola_id IS NULL OR r.escola_id=ANY($1::int[]))`; }
+    if (!hasMunicipalScope(request)) { params.push(request.access.escolas); where=`WHERE (r.escola_id IS NULL OR r.escola_id=ANY($1::int[]))`; }
     const { rows } = await pool.query(`SELECT r.id,r.titulo,r.tipo,r.escola_id AS "escolaId",e.nome AS escola,r.inicio,r.fim,r.local,r.link_virtual AS "linkVirtual",r.pauta,r.participantes,r.status,u.nome AS "criadoPor" FROM reunioes_municipais r LEFT JOIN escolas e ON e.id=r.escola_id LEFT JOIN usuarios u ON u.id=r.criado_por ${where} ORDER BY r.inicio DESC`,params);
     return response.json(rows);
   } catch (error) { return next(error); }
@@ -155,15 +159,15 @@ router.patch('/meetings/:id/status', requireMunicipalManagement, async (request,
 });
 
 router.get('/demands', async (request,response,next)=>{
-  try{const params=[];let where='';if(!request.access.municipal){params.push(request.access.escolas);where='WHERE d.escola_id=ANY($1::int[])';}const {rows}=await pool.query(`SELECT d.id,d.escola_id AS "escolaId",e.nome AS escola,d.titulo,d.categoria,d.descricao,d.prioridade,d.status,d.prazo,d.responsavel_id AS "responsavelId",ur.nome AS responsavel,uc.nome AS "criadoPor",d.criado_em AS "criadoEm",d.atualizado_em AS "atualizadoEm",COALESCE((SELECT JSON_AGG(JSON_BUILD_OBJECT('id',h.id,'mensagem',h.mensagem,'statusAnterior',h.status_anterior,'statusNovo',h.status_novo,'usuario',u.nome,'criadoEm',h.criado_em) ORDER BY h.criado_em) FROM historico_demandas_municipais h LEFT JOIN usuarios u ON u.id=h.usuario_id WHERE h.demanda_id=d.id),'[]'::json) AS historico FROM demandas_municipais d JOIN escolas e ON e.id=d.escola_id LEFT JOIN usuarios ur ON ur.id=d.responsavel_id LEFT JOIN usuarios uc ON uc.id=d.criado_por ${where} ORDER BY CASE d.prioridade WHEN 'Urgente' THEN 0 WHEN 'Alta' THEN 1 WHEN 'Média' THEN 2 ELSE 3 END,d.prazo NULLS LAST,d.criado_em DESC`,params);return response.json(rows);}catch(error){return next(error);}
+  try{const params=[];let where='';if(!hasMunicipalScope(request)){params.push(request.access.escolas);where='WHERE d.escola_id=ANY($1::int[])';}const {rows}=await pool.query(`SELECT d.id,d.escola_id AS "escolaId",e.nome AS escola,d.titulo,d.categoria,d.descricao,d.prioridade,d.status,d.prazo,d.responsavel_id AS "responsavelId",ur.nome AS responsavel,uc.nome AS "criadoPor",d.criado_em AS "criadoEm",d.atualizado_em AS "atualizadoEm",COALESCE((SELECT JSON_AGG(JSON_BUILD_OBJECT('id',h.id,'mensagem',h.mensagem,'statusAnterior',h.status_anterior,'statusNovo',h.status_novo,'usuario',u.nome,'criadoEm',h.criado_em) ORDER BY h.criado_em) FROM historico_demandas_municipais h LEFT JOIN usuarios u ON u.id=h.usuario_id WHERE h.demanda_id=d.id),'[]'::json) AS historico FROM demandas_municipais d JOIN escolas e ON e.id=d.escola_id LEFT JOIN usuarios ur ON ur.id=d.responsavel_id LEFT JOIN usuarios uc ON uc.id=d.criado_por ${where} ORDER BY CASE d.prioridade WHEN 'Urgente' THEN 0 WHEN 'Alta' THEN 1 WHEN 'Média' THEN 2 ELSE 3 END,d.prazo NULLS LAST,d.criado_em DESC`,params);return response.json(rows);}catch(error){return next(error);}
 });
 
 router.post('/demands', async (request,response,next)=>{
-  const client=await pool.connect();try{const data=z.object({escolaId:z.coerce.number().int().positive(),titulo:z.string().trim().min(3),categoria:z.string().trim().min(2),descricao:z.string().trim().min(5),prioridade:z.enum(['Baixa','Média','Alta','Urgente']).default('Média'),prazo:z.string().date().nullable().optional(),responsavelId:z.coerce.number().int().positive().nullable().optional()}).parse(request.body);if(!request.access.municipal&&!request.access.escolas.includes(data.escolaId))return response.status(403).json({message:'Você não pode abrir demanda para esta escola.'});await client.query('BEGIN');const {rows}=await client.query(`INSERT INTO demandas_municipais(escola_id,titulo,categoria,descricao,prioridade,prazo,responsavel_id,criado_por) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,status`,[data.escolaId,data.titulo,data.categoria,data.descricao,data.prioridade,data.prazo||null,data.responsavelId||null,request.access.userId]);await client.query(`INSERT INTO historico_demandas_municipais(demanda_id,usuario_id,status_novo,mensagem) VALUES($1,$2,$3,$4)`,[rows[0].id,request.access.userId,rows[0].status,data.descricao]);await client.query('COMMIT');return response.status(201).json({id:rows[0].id,message:'Demanda registrada com sucesso.'});}catch(error){await client.query('ROLLBACK');return next(error);}finally{client.release();}
+  const client=await pool.connect();try{const data=z.object({escolaId:z.coerce.number().int().positive(),titulo:z.string().trim().min(3),categoria:z.string().trim().min(2),descricao:z.string().trim().min(5),prioridade:z.enum(['Baixa','Média','Alta','Urgente']).default('Média'),prazo:z.string().date().nullable().optional(),responsavelId:z.coerce.number().int().positive().nullable().optional()}).parse(request.body);if(!hasMunicipalScope(request)&&!request.access.escolas.includes(data.escolaId))return response.status(403).json({message:'Você não pode abrir demanda para esta escola.'});await client.query('BEGIN');const {rows}=await client.query(`INSERT INTO demandas_municipais(escola_id,titulo,categoria,descricao,prioridade,prazo,responsavel_id,criado_por) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,status`,[data.escolaId,data.titulo,data.categoria,data.descricao,data.prioridade,data.prazo||null,data.responsavelId||null,request.access.userId]);await client.query(`INSERT INTO historico_demandas_municipais(demanda_id,usuario_id,status_novo,mensagem) VALUES($1,$2,$3,$4)`,[rows[0].id,request.access.userId,rows[0].status,data.descricao]);await client.query('COMMIT');return response.status(201).json({id:rows[0].id,message:'Demanda registrada com sucesso.'});}catch(error){await client.query('ROLLBACK');return next(error);}finally{client.release();}
 });
 
 router.patch('/demands/:id', async (request,response,next)=>{
-  const client=await pool.connect();try{const id=z.coerce.number().int().positive().parse(request.params.id);const data=z.object({status:z.enum(['Aberta','Em andamento','Aguardando escola','Aguardando Secretaria','Concluída','Cancelada']),mensagem:z.string().trim().min(3),responsavelId:z.coerce.number().int().positive().nullable().optional()}).parse(request.body);await client.query('BEGIN');const {rows}=await client.query('SELECT * FROM demandas_municipais WHERE id=$1 FOR UPDATE',[id]);const demand=rows[0];if(!demand){await client.query('ROLLBACK');return response.status(404).json({message:'Demanda não encontrada.'});}if(!request.access.municipal&&!request.access.escolas.includes(Number(demand.escola_id))){await client.query('ROLLBACK');return response.status(403).json({message:'Sem acesso a esta demanda.'});}await client.query(`UPDATE demandas_municipais SET status=$1,responsavel_id=COALESCE($2,responsavel_id),concluido_em=CASE WHEN $1='Concluída' THEN NOW() ELSE NULL END,atualizado_em=NOW() WHERE id=$3`,[data.status,data.responsavelId||null,id]);await client.query(`INSERT INTO historico_demandas_municipais(demanda_id,usuario_id,status_anterior,status_novo,mensagem) VALUES($1,$2,$3,$4,$5)`,[id,request.access.userId,demand.status,data.status,data.mensagem]);await client.query('COMMIT');return response.json({id,status:data.status,message:'Demanda atualizada.'});}catch(error){await client.query('ROLLBACK');return next(error);}finally{client.release();}
+  const client=await pool.connect();try{const id=z.coerce.number().int().positive().parse(request.params.id);const data=z.object({status:z.enum(['Aberta','Em andamento','Aguardando escola','Aguardando Secretaria','Concluída','Cancelada']),mensagem:z.string().trim().min(3),responsavelId:z.coerce.number().int().positive().nullable().optional()}).parse(request.body);await client.query('BEGIN');const {rows}=await client.query('SELECT * FROM demandas_municipais WHERE id=$1 FOR UPDATE',[id]);const demand=rows[0];if(!demand){await client.query('ROLLBACK');return response.status(404).json({message:'Demanda não encontrada.'});}if(!hasMunicipalScope(request)&&!request.access.escolas.includes(Number(demand.escola_id))){await client.query('ROLLBACK');return response.status(403).json({message:'Sem acesso a esta demanda.'});}await client.query(`UPDATE demandas_municipais SET status=$1,responsavel_id=COALESCE($2,responsavel_id),concluido_em=CASE WHEN $1='Concluída' THEN NOW() ELSE NULL END,atualizado_em=NOW() WHERE id=$3`,[data.status,data.responsavelId||null,id]);await client.query(`INSERT INTO historico_demandas_municipais(demanda_id,usuario_id,status_anterior,status_novo,mensagem) VALUES($1,$2,$3,$4,$5)`,[id,request.access.userId,demand.status,data.status,data.mensagem]);await client.query('COMMIT');return response.json({id,status:data.status,message:'Demanda atualizada.'});}catch(error){await client.query('ROLLBACK');return next(error);}finally{client.release();}
 });
 
 function csvValue(value){const text=value==null?'':typeof value==='object'?JSON.stringify(value):String(value);return `"${text.replaceAll('"','""')}"`;}
