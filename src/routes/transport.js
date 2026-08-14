@@ -379,4 +379,44 @@ router.patch('/maintenance/:id/status', async (request, response, next) => {
   }
 });
 
+router.patch('/vehicles/:id', async (request, response, next) => {
+  try {
+    const id = z.coerce.number().int().positive().parse(request.params.id);
+    const data = z.object({ estado: z.enum(['Em operacao', 'Em manutencao']).optional(), ativo: z.boolean().optional() }).refine((value) => value.estado !== undefined || value.ativo !== undefined).parse(request.body);
+    const { rows } = await pool.query(`UPDATE veiculos_transporte SET estado=COALESCE($1,estado),ativo=COALESCE($2,ativo) WHERE id=$3 RETURNING id,estado,ativo`, [data.estado ?? null, data.ativo ?? null, id]);
+    if (!rows[0]) return response.status(404).json({ message: 'Veículo não encontrado.' });
+    return response.json(rows[0]);
+  } catch (error) { return next(error); }
+});
+
+router.patch('/drivers/:id', async (request, response, next) => {
+  try {
+    const id = z.coerce.number().int().positive().parse(request.params.id);
+    const data = z.object({ telefone: optionalText, validadeCnh: optionalText, ativo: z.boolean().optional() }).parse(request.body);
+    const { rows } = await pool.query(`UPDATE motoristas_transporte SET telefone=COALESCE($1,telefone),validade_cnh=COALESCE($2,validade_cnh),ativo=COALESCE($3,ativo) WHERE id=$4 RETURNING id,telefone,validade_cnh,ativo`, [data.telefone, data.validadeCnh, data.ativo ?? null, id]);
+    if (!rows[0]) return response.status(404).json({ message: 'Motorista não encontrado.' });
+    return response.json(rows[0]);
+  } catch (error) { return next(error); }
+});
+
+router.patch('/routes/:id/status', async (request, response, next) => {
+  try {
+    const id = z.coerce.number().int().positive().parse(request.params.id);
+    const { ativo } = z.object({ ativo: z.boolean() }).parse(request.body);
+    const { rows } = await pool.query('UPDATE rotas_transporte SET ativo=$1 WHERE id=$2 RETURNING id,ativo', [ativo, id]);
+    if (!rows[0]) return response.status(404).json({ message: 'Rota não encontrada.' });
+    return response.json(rows[0]);
+  } catch (error) { return next(error); }
+});
+
+router.patch('/students/:id/status', async (request, response, next) => {
+  try {
+    const id = z.coerce.number().int().positive().parse(request.params.id);
+    const { ativo } = z.object({ ativo: z.boolean() }).parse(request.body);
+    const { rows } = await pool.query('UPDATE alunos_rotas_transporte SET ativo=$1 WHERE id=$2 RETURNING id,ativo', [ativo, id]);
+    if (!rows[0]) return response.status(404).json({ message: 'Vínculo de transporte não encontrado.' });
+    return response.json(rows[0]);
+  } catch (error) { return next(error); }
+});
+
 export default router;
