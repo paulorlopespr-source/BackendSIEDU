@@ -34,6 +34,9 @@ router.get('/manager', async (_request, response, next) => {
       users,
       students,
       classes,
+      idebTrend,
+      performance,
+      academicTotals,
     ] = await Promise.all([
       pool.query('SELECT COUNT(*)::int AS total FROM escolas'),
       pool.query(`
@@ -114,6 +117,27 @@ router.get('/manager', async (_request, response, next) => {
       `),
       countExistingTable('alunos'),
       countExistingTable('turmas'),
+      pool.query(`
+        SELECT ano, ROUND(AVG(valor)::numeric,2)::float8 AS valor,
+          ROUND(AVG(meta)::numeric,2)::float8 AS meta
+        FROM resultados_ideb GROUP BY ano ORDER BY ano
+      `),
+      pool.query(`
+        SELECT e.id,e.nome,
+          COALESCE((SELECT ROUND(AVG(CASE WHEN df.presente THEN 100 ELSE 0 END)::numeric,2)
+            FROM diario_frequencias df JOIN diarios_classe dc ON dc.id=df.diario_id
+            JOIN turmas t ON t.id=dc.turma_id WHERE t.escola_id=e.id),0)::float8 AS frequencia,
+          COALESCE((SELECT ROUND(AVG((na.pontos/NULLIF(ap.valor_maximo,0))*10)::numeric,2)
+            FROM notas_avaliacoes na JOIN avaliacoes_professor ap ON ap.id=na.avaliacao_id
+            JOIN turmas t ON t.id=ap.turma_id WHERE t.escola_id=e.id),0)::float8 AS media
+        FROM escolas e ORDER BY e.nome
+      `),
+      pool.query(`
+        SELECT
+          COALESCE((SELECT ROUND(AVG(CASE WHEN df.presente THEN 100 ELSE 0 END)::numeric,2) FROM diario_frequencias df),0)::float8 AS frequencia,
+          COALESCE((SELECT ROUND(AVG((na.pontos/NULLIF(ap.valor_maximo,0))*10)::numeric,2) FROM notas_avaliacoes na JOIN avaliacoes_professor ap ON ap.id=na.avaliacao_id),0)::float8 AS media,
+          (SELECT COUNT(*)::int FROM planejamentos_aula WHERE status='Enviado para aprovação') AS planos_pendentes
+      `),
     ]);
 
     const alerts = [
@@ -143,12 +167,15 @@ router.get('/manager', async (_request, response, next) => {
         classes,
         investment: investment.rows[0].allocated,
         spent: investment.rows[0].used,
-        idebTarget: 0,
+        idebTarget: idebTrend.rows.at(-1)?.meta || 0,
+        attendance: academicTotals.rows[0].frequencia,
+        average: academicTotals.rows[0].media,
+        pendingPlans: academicTotals.rows[0].planos_pendentes,
       },
       academic: {
-        available: students > 0 || classes > 0,
-        ideb: [],
-        performance: [],
+        available: students > 0 || classes > 0 || idebTrend.rows.length > 0,
+        ideb: idebTrend.rows,
+        performance: performance.rows,
       },
       financeDistribution: financeDistribution.rows,
       schoolRanking: schoolRanking.rows,

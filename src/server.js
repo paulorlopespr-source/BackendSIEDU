@@ -9,6 +9,7 @@ import {
 } from './middlewares/security.js';
 import auditRouter from './routes/audit.js';
 import academicRouter from './routes/academic.js';
+import municipalRouter from './routes/municipal.js';
 import authRouter from './routes/auth.js';
 import dashboardRouter from './routes/dashboard.js';
 import financeRouter from './routes/finance.js';
@@ -70,6 +71,7 @@ app.use('/api/calendar', calendarRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/audit', auditRouter);
 app.use('/api/academic', academicRouter);
+app.use('/api/municipal', municipalRouter);
 
 app.use((_request, response) => {
   return response.status(404).json({ message: 'Rota não encontrada.' });

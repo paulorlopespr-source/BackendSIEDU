@@ -55,12 +55,6 @@ async function ensureSchoolAccess(request, response, schoolId) {
 
 router.get('/', allowSchoolStaff, async (request, response, next) => {
   try {
-    if (!canManageSchoolFinance(request)) {
-      return response.status(403).json({
-        message: 'Acesso financeiro permitido somente ao Gestor, Diretor ou Secretário Escolar.',
-      });
-    }
-
     const access = accessibleSchoolClause(request);
     const schoolAccess = accessibleSchoolClause(request, 'l');
     const statementAccess = accessibleSchoolClause(request, 'p');
@@ -135,11 +129,16 @@ router.get('/', allowSchoolStaff, async (request, response, next) => {
           p.competencia,
           p.observacoes,
           p.status,
+          p.parecer,
+          p.data_reuniao,
+          av.nome AS avaliada_por,
+          p.avaliada_em,
           u.nome AS enviada_por,
           p.enviada_em
         FROM prestacoes_contas_escolares p
         JOIN escolas e ON e.id = p.escola_id
         JOIN usuarios u ON u.id = p.enviada_por
+        LEFT JOIN usuarios av ON av.id = p.avaliada_por
         ${statementAccess.sql}
         ORDER BY p.competencia DESC, p.id DESC
       `, statementAccess.values),
@@ -336,6 +335,32 @@ router.post('/allocations/:id/audit', allowMunicipalAdmin, preventSuperintendent
     ]);
 
     return response.status(201).json(rows[0]);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch('/statements/:id/review', allowMunicipalAdmin, async (request, response, next) => {
+  try {
+    const statementId = z.coerce.number().int().positive().parse(request.params.id);
+    const data = z.object({
+      status: z.enum(['Aprovada', 'Com pendencia', 'Reuniao solicitada']),
+      parecer: z.string().trim().min(10),
+      dataReuniao: optionalText,
+    }).parse(request.body);
+    if (request.access.perfil === 'Superintendente / Diretor de Ensino' && data.status === 'Aprovada') {
+      return response.status(403).json({ message: 'O Superintendente pode emitir parecer e solicitar correção, mas não aprovar a prestação.' });
+    }
+    if (data.status === 'Reuniao solicitada' && !data.dataReuniao) {
+      return response.status(400).json({ message: 'Informe a data da reunião.' });
+    }
+    const { rows } = await pool.query(`
+      UPDATE prestacoes_contas_escolares
+      SET status=$1, parecer=$2, data_reuniao=$3, avaliada_por=$4, avaliada_em=NOW()
+      WHERE id=$5 RETURNING id,status,parecer,data_reuniao,avaliada_em
+    `, [data.status, data.parecer, data.dataReuniao, request.access.userId, statementId]);
+    if (!rows[0]) return response.status(404).json({ message: 'Prestação de contas não encontrada.' });
+    return response.json({ ...rows[0], message: 'Prestação de contas avaliada.' });
   } catch (error) {
     return next(error);
   }

@@ -298,6 +298,41 @@ router.post('/', allowUserAdministration, async (request, response, next) => {
   } finally { client.release(); }
 });
 
+router.patch('/:id', allowUserAdministration, async (request, response, next) => {
+  const client = await pool.connect();
+  try {
+    const data = z.object({
+      email: optionalEmail,
+      telefoneInstitucional: optionalText(30),
+      cargo: optionalText(120),
+      funcaoExercida: optionalText(120),
+      situacaoFuncional: z.enum(['ativo', 'afastado', 'licenca', 'cedido', 'desligado']).optional(),
+      situacaoAcesso: z.enum(['ativo', 'bloqueado', 'pendente', 'desligado']).optional(),
+      escolaIds: z.array(z.coerce.number().int().positive()).max(100).optional(),
+    }).refine((value) => Object.values(value).some((item) => item !== undefined), 'Informe ao menos uma alteração.').parse(request.body);
+    await client.query('BEGIN');
+    const user = await findUser(client, request.params.id, true);
+    const ids = data.escolaIds ? uniqueSchoolIds(data.escolaIds) : null;
+    if (ids) {
+      validateSchoolBindings(user.perfil, ids);
+      await assertSchoolsExist(client, ids);
+      await syncUserSchools(client, user.id, ids);
+    }
+    await client.query(`
+      UPDATE usuarios SET email=COALESCE($1,email),telefone_institucional=COALESCE($2,telefone_institucional),
+        cargo=COALESCE($3,cargo),funcao_exercida=COALESCE($4,funcao_exercida),
+        situacao_funcional=COALESCE($5,situacao_funcional),situacao_acesso=COALESCE($6,situacao_acesso),
+        ativo=CASE WHEN $6 IN ('bloqueado','desligado') OR $5='desligado' THEN FALSE WHEN $6='ativo' THEN TRUE ELSE ativo END,
+        atualizado_em=NOW() WHERE id=$7
+    `,[data.email||null,data.telefoneInstitucional||null,data.cargo||null,data.funcaoExercida||null,data.situacaoFuncional||null,data.situacaoAcesso||null,user.id]);
+    const currentSchools=ids||((await listSchools(client,user.id)).map((school)=>school.id));
+    const currentStatus=data.situacaoAcesso||(await client.query('SELECT situacao_acesso FROM usuarios WHERE id=$1',[user.id])).rows[0].situacao_acesso;
+    await recordPermission(client,user.id,user.tipo_usuario_id,currentSchools,currentStatus,'cadastro_atualizado',request.user.sub);
+    await client.query('COMMIT');
+    return response.json({id:user.id,message:'Cadastro funcional atualizado.',escolas:await listSchools(client,user.id)});
+  } catch(error){await client.query('ROLLBACK');return next(error);} finally {client.release();}
+});
+
 router.patch('/:id/photo', async (request, response, next) => {
   const client = await pool.connect();
   try {
