@@ -57,7 +57,8 @@ router.get('/portal', async (request, response, next) => {
 
     const params = [student.turmaId, student.alunoId];
     const [subjects, schedule, materials, plannedActivities, personalActivities,
-      gradesResult, attendanceResult, calendarResult, notificationsResult] = await Promise.all([
+      gradesResult, attendanceResult, calendarResult, notificationsResult,
+      cycleResults, trailsResult, saebResult] = await Promise.all([
       pool.query(`
         SELECT
           tp.componente_curricular AS disciplina,
@@ -202,6 +203,53 @@ router.get('/portal', async (request, response, next) => {
         ORDER BY lida, criado_em DESC, id DESC
         LIMIT 30
       `, [student.alunoId]),
+      pool.query(`
+        SELECT c.id, c.titulo, c.descricao, c.instrucoes,
+          c.componente_curricular AS disciplina, c.data_inicio AS "dataInicio",
+          c.data_fim AS "dataFim", c.valor_maximo::float8 AS "valorMaximo",
+          c.ciclo_numero AS "cicloNumero", c.status,
+          r.pontos::float8, r.feedback,
+          CASE WHEN r.pontos IS NULL THEN NULL
+            ELSE ROUND((r.pontos / NULLIF(c.valor_maximo, 0) * 10)::numeric, 1)::float8
+          END AS nota,
+          p.nome_completo AS professor
+        FROM avaliacoes_ciclo c
+        JOIN professores p ON p.id = c.professor_id
+        LEFT JOIN resultados_avaliacoes_ciclo r
+          ON r.avaliacao_ciclo_id = c.id AND r.aluno_id = $2
+        WHERE c.turma_id = $1 AND c.status <> 'Cancelada'
+        ORDER BY c.data_inicio DESC, c.id DESC
+      `, params),
+      pool.query(`
+        SELECT tr.id, tr.titulo, tr.componente_curricular AS disciplina,
+          tr.objetivo, tr.conteudos, tr.exercicios,
+          tr.criterio_resultado AS "criterioResultado",
+          tr.perfil_criador AS "perfilCriador", tr.versao,
+          COALESCE(tra.status, 'Disponível') AS status,
+          COALESCE(tra.progresso, 0) AS progresso,
+          tra.resultado_observado::float8 AS "resultadoObservado",
+          tr.atualizado_em AS "atualizadoEm"
+        FROM trilhas_revisao tr
+        LEFT JOIN trilhas_revisao_alunos tra
+          ON tra.trilha_id = tr.id AND tra.aluno_id = $2
+        WHERE tr.turma_id = $1 AND tr.status = 'Publicada'
+        ORDER BY tr.atualizado_em DESC, tr.id DESC
+      `, params),
+      pool.query(`
+        SELECT s.id, s.titulo, s.area_conhecimento AS "areaConhecimento",
+          s.matriz_referencia AS "matrizReferencia", s.serie_ano AS "serieAno",
+          s.data_aplicacao AS "dataAplicacao",
+          TO_CHAR(s.hora_inicio, 'HH24:MI') AS "horaInicio",
+          s.duracao_minutos AS "duracaoMinutos",
+          s.quantidade_questoes AS "quantidadeQuestoes", s.instrucoes, s.status,
+          rs.acertos, rs.proficiencia::float8, rs.nivel_desempenho AS "nivelDesempenho"
+        FROM simulados_saeb s
+        LEFT JOIN resultados_simulados_saeb rs
+          ON rs.simulado_id = s.id AND rs.aluno_id = $2
+        WHERE s.status <> 'Cancelado'
+          AND (s.turma_id = $1 OR (s.turma_id IS NULL AND (s.serie_ano IS NULL OR LOWER(s.serie_ano) = LOWER($3))))
+        ORDER BY s.data_aplicacao, s.id
+      `, [student.turmaId, student.alunoId, student.serieAno]),
     ]);
 
     const grades = gradesResult.rows.map((grade) => ({
@@ -225,6 +273,33 @@ router.get('/portal', async (request, response, next) => {
       ),
       ...personalActivities.rows.filter((item) => ['Pendente', 'Atrasada'].includes(item.status)),
     ];
+    const cycleGrades = cycleResults.rows
+      .filter((item) => item.nota != null)
+      .map((item) => ({
+        id: `ciclo-${item.id}`,
+        disciplina: item.disciplina,
+        titulo: item.titulo,
+        data: item.dataFim,
+        nota: Number(item.nota),
+        origem: 'Avaliação de Ciclo',
+      }));
+    const allLearningGrades = [
+      ...grades.filter((item) => item.nota != null).map((item) => ({
+        id: `regular-${item.id}`,
+        disciplina: item.disciplina,
+        titulo: item.titulo,
+        data: item.data,
+        nota: Number(item.nota),
+        origem: item.tipo,
+      })),
+      ...cycleGrades,
+    ].sort((left, right) => String(left.data).localeCompare(String(right.data)));
+    const learningAverage = allLearningGrades.length
+      ? Number((allLearningGrades.reduce((sum, item) => sum + item.nota, 0) / allLearningGrades.length).toFixed(1))
+      : null;
+    const learningPending = pending.length
+      + cycleResults.rows.filter((item) => item.status === 'Publicada' && item.pontos == null).length
+      + trailsResult.rows.filter((item) => item.status !== 'Concluída').length;
 
     return response.json({
       aluno: student,
@@ -247,6 +322,17 @@ router.get('/portal', async (request, response, next) => {
         ...calendarResult.rows.map((item) => ({ ...item, origem: 'Evento' })),
       ].sort((left, right) => String(left.data).localeCompare(String(right.data))),
       notificacoes: notificationsResult.rows,
+      avaliacoesCiclo: cycleResults.rows,
+      trilhasRevisao: trailsResult.rows,
+      simuladosSaeb: saebResult.rows,
+      painelAprendizagem: {
+        mediaGeral: learningAverage,
+        evolucao: allLearningGrades,
+        pendencias: learningPending,
+        trilhasConcluidas: trailsResult.rows.filter((item) => item.status === 'Concluída').length,
+        trilhasDisponiveis: trailsResult.rowCount,
+        avaliacoesCiclo: cycleResults.rowCount,
+      },
       resumo: {
         disciplinas: subjects.rowCount,
         materiais: materials.rowCount,
