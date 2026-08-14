@@ -22,4 +22,5 @@ export const migrations = [
   '46_portal_aluno.sql', '47_aprendizagem_ciclos_trilhas_saeb.sql',
   '48_calendario_escolar_aluno.sql', '49_portal_professor_completo.sql',
   '50_gestao_municipal_integrada.sql',
+  '51_serie_historica_ideb_pindobacu.sql',
 ];
