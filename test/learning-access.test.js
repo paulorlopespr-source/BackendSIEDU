@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   canDefineSaeb,
   canEditRevisionTrails,
+  hasMunicipalLearningScope,
   isLearningProfessor,
   schoolGradeNumber,
 } from '../src/learning-access.js';
@@ -20,6 +21,12 @@ test('permite edição de trilhas somente a professores e coordenadores pedagóg
   assert.equal(canEditRevisionTrails({ perfil: 'Coordenador Pedagógico Municipal' }), true);
   assert.equal(canEditRevisionTrails({ perfil: 'Coordenador Pedagógico' }), true);
   assert.equal(canEditRevisionTrails({ perfil: 'Aluno' }), false);
+});
+
+test('reconhece o escopo pedagógico municipal mesmo sem municipal_total', () => {
+  assert.equal(hasMunicipalLearningScope({ perfil: 'Coordenador Pedagógico Municipal', municipal: false }), true);
+  assert.equal(hasMunicipalLearningScope({ perfil: 'Coordenador Pedagógico', municipal: false }), false);
+  assert.equal(hasMunicipalLearningScope({ perfil: 'Secretário Municipal de Educação', municipal: true }), true);
 });
 
 test('restringe definição do SAEB à gestão municipal autorizada', () => {
