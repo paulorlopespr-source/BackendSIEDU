@@ -458,30 +458,11 @@ router.get('/students', async (request, response, next) => {
   try {
     const scope = schoolScope(request, request.query.escolaId);
     const search = String(request.query.busca || '').trim();
-    const { rows } = await pool.query(`
-      SELECT DISTINCT ON (a.id)
-        a.id,
-        a.nome_completo AS nome,
-        a.nome_social AS "nomeSocial",
-        a.data_nascimento AS "dataNascimento",
-        a.cpf,
-        a.ativo,
-        m.numero AS matricula,
-        m.status AS "statusMatricula",
-        m.ano_letivo AS "anoLetivo",
-        m.escola_id AS "escolaId",
-        e.nome AS escola,
-        m.turma_id AS "turmaId",
-        t.nome AS turma,
-        r.nome_completo AS responsavel,
-        r.telefone_principal AS "contatoResponsavel"
-      FROM alunos a
-      JOIN matriculas m ON m.aluno_id = a.id
-      JOIN escolas e ON e.id = m.escola_id
-      JOIN turmas t ON t.id = m.turma_id
-      LEFT JOIN aluno_responsaveis ar
-        ON ar.aluno_id = a.id AND ar.contato_principal = TRUE
-      LEFT JOIN responsaveis r ON r.id = ar.responsavel_id
+    const pagination = getPagination(request.query);
+
+    const baseParams = [scope.schoolId, scope.schoolIds, search];
+
+    const filters = `
       WHERE (
         ($1::INTEGER IS NOT NULL AND m.escola_id = $1)
         OR (
@@ -492,13 +473,93 @@ router.get('/students', async (request, response, next) => {
         AND (
           $3 = ''
           OR a.nome_completo ILIKE '%' || $3 || '%'
+          OR COALESCE(a.nome_social, '') ILIKE '%' || $3 || '%'
           OR m.numero ILIKE '%' || $3 || '%'
-          OR COALESCE(a.cpf, '') LIKE '%' || REGEXP_REPLACE($3, '\\D', '', 'g') || '%'
+          OR (
+            REGEXP_REPLACE($3, '\\D', '', 'g') <> ''
+            AND COALESCE(a.cpf, '') LIKE '%' || REGEXP_REPLACE($3, '\\D', '', 'g') || '%'
+          )
         )
-      ORDER BY a.id, m.ano_letivo DESC, m.criado_em DESC
-    `, [scope.schoolId, scope.schoolIds, search]);
+    `;
 
-    return response.json(rows);
+    if (!pagination) {
+      const { rows } = await pool.query(`
+        SELECT DISTINCT ON (a.id)
+          a.id,
+          a.nome_completo AS nome,
+          a.nome_social AS "nomeSocial",
+          a.data_nascimento AS "dataNascimento",
+          a.cpf,
+          a.ativo,
+          m.numero AS matricula,
+          m.status AS "statusMatricula",
+          m.ano_letivo AS "anoLetivo",
+          m.escola_id AS "escolaId",
+          e.nome AS escola,
+          m.turma_id AS "turmaId",
+          t.nome AS turma,
+          r.nome_completo AS responsavel,
+          r.telefone_principal AS "contatoResponsavel"
+        FROM alunos a
+        JOIN matriculas m ON m.aluno_id = a.id
+        JOIN escolas e ON e.id = m.escola_id
+        JOIN turmas t ON t.id = m.turma_id
+        LEFT JOIN aluno_responsaveis ar
+          ON ar.aluno_id = a.id AND ar.contato_principal = TRUE
+        LEFT JOIN responsaveis r ON r.id = ar.responsavel_id
+        ${filters}
+        ORDER BY a.id, m.ano_letivo DESC, m.criado_em DESC
+      `, baseParams);
+
+      return response.json(rows);
+    }
+
+    const countResult = await pool.query(`
+      SELECT COUNT(DISTINCT a.id)::INTEGER AS total
+      FROM alunos a
+      JOIN matriculas m ON m.aluno_id = a.id
+      JOIN escolas e ON e.id = m.escola_id
+      JOIN turmas t ON t.id = m.turma_id
+      ${filters}
+    `, baseParams);
+
+    const total = countResult.rows[0].total;
+
+    const { rows } = await pool.query(`
+      WITH latest_students AS (
+        SELECT DISTINCT ON (a.id)
+          a.id,
+          a.nome_completo AS nome,
+          a.nome_social AS "nomeSocial",
+          a.data_nascimento AS "dataNascimento",
+          a.cpf,
+          a.ativo,
+          m.numero AS matricula,
+          m.status AS "statusMatricula",
+          m.ano_letivo AS "anoLetivo",
+          m.escola_id AS "escolaId",
+          e.nome AS escola,
+          m.turma_id AS "turmaId",
+          t.nome AS turma,
+          r.nome_completo AS responsavel,
+          r.telefone_principal AS "contatoResponsavel"
+        FROM alunos a
+        JOIN matriculas m ON m.aluno_id = a.id
+        JOIN escolas e ON e.id = m.escola_id
+        JOIN turmas t ON t.id = m.turma_id
+        LEFT JOIN aluno_responsaveis ar
+          ON ar.aluno_id = a.id AND ar.contato_principal = TRUE
+        LEFT JOIN responsaveis r ON r.id = ar.responsavel_id
+        ${filters}
+        ORDER BY a.id, m.ano_letivo DESC, m.criado_em DESC
+      )
+      SELECT *
+      FROM latest_students
+      ORDER BY nome
+      LIMIT $4 OFFSET $5
+    `, [...baseParams, pagination.limit, pagination.offset]);
+
+    return response.json(paginatedResponse(rows, total, pagination));
   } catch (error) {
     return next(error);
   }
