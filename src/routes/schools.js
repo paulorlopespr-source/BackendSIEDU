@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool } from '../database.js';
 import { authenticate } from '../middlewares/auth.js';
 import { allowMunicipalAdmin, loadAccessContext } from '../middlewares/access.js';
+import { getPagination, paginatedResponse } from '../utils/pagination.js';
 
 const router = Router();
 router.use(authenticate, loadAccessContext);
@@ -64,9 +65,23 @@ async function removeUserSchoolBinding(client, userId, schoolId) {
   `, [userId, schoolId]);
 }
 
-router.get('/', async (_request, response, next) => {
+router.get('/', async (request, response, next) => {
   try {
-    const { rows } = await pool.query(`
+    const search = String(request.query.busca || '').trim();
+    const pagination = getPagination(request.query);
+
+    const filters = `
+      WHERE (
+        $1 = ''
+        OR e.codigo_rede ILIKE '%' || $1 || '%'
+        OR e.nome ILIKE '%' || $1 || '%'
+        OR COALESCE(e.categoria, '') ILIKE '%' || $1 || '%'
+        OR COALESCE(e.localidade, '') ILIKE '%' || $1 || '%'
+        OR COALESCE(u.nome, '') ILIKE '%' || $1 || '%'
+      )
+    `;
+
+    const select = `
       SELECT
         e.id,
         e.codigo_rede,
@@ -84,9 +99,45 @@ router.get('/', async (_request, response, next) => {
         u.nome AS diretor
       FROM escolas e
       LEFT JOIN usuarios u ON u.id = e.diretor_usuario_id
-      ORDER BY e.codigo_rede NULLS LAST, e.nome
-    `);
-    response.json(rows);
+      ${filters}
+    `;
+
+    if (!pagination) {
+      const { rows } = await pool.query(
+        `${select}
+         ORDER BY e.codigo_rede NULLS LAST, e.nome`,
+        [search],
+      );
+
+      response.json(rows);
+      return;
+    }
+
+    const [countResult, dataResult] = await Promise.all([
+      pool.query(
+        `
+          SELECT COUNT(*)::int AS total
+          FROM escolas e
+          LEFT JOIN usuarios u ON u.id = e.diretor_usuario_id
+          ${filters}
+        `,
+        [search],
+      ),
+      pool.query(
+        `${select}
+         ORDER BY e.codigo_rede NULLS LAST, e.nome
+         LIMIT $2 OFFSET $3`,
+        [search, pagination.limit, pagination.offset],
+      ),
+    ]);
+
+    response.json(
+      paginatedResponse(
+        dataResult.rows,
+        countResult.rows[0].total,
+        pagination,
+      ),
+    );
   } catch (error) {
     next(error);
   }
