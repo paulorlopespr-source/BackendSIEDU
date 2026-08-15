@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../database.js';
+import { getPagination, paginatedResponse } from '../utils/pagination.js';
 import { authenticate } from '../middlewares/auth.js';
 import {
   allowAcademicManagement,
@@ -172,6 +173,51 @@ router.get('/classes', async (request, response, next) => {
     const schoolYear = request.query.anoLetivo
       ? Number(request.query.anoLetivo)
       : null;
+    const pagination = getPagination(request.query);
+
+    const baseParams = [
+      scope.schoolId,
+      scope.schoolIds,
+      schoolYear,
+      search,
+    ];
+
+    let total = null;
+
+    if (pagination) {
+      const countResult = await pool.query(`
+        SELECT COUNT(*)::INTEGER AS total
+        FROM vw_turmas_resumo v
+        JOIN escolas e ON e.id = v.escola_id
+        LEFT JOIN usuarios coordenador ON coordenador.id = v.coordenador_usuario_id
+        WHERE (
+          ($1::INTEGER IS NOT NULL AND v.escola_id = $1)
+          OR (
+            $1::INTEGER IS NULL
+            AND ($2::INTEGER[] IS NULL OR v.escola_id = ANY($2::INTEGER[]))
+          )
+        )
+          AND ($3::INTEGER IS NULL OR v.ano_letivo = $3)
+          AND (
+            $4 = ''
+            OR v.nome ILIKE '%' || $4 || '%'
+            OR v.serie_ano ILIKE '%' || $4 || '%'
+            OR v.turno ILIKE '%' || $4 || '%'
+            OR e.nome ILIKE '%' || $4 || '%'
+            OR COALESCE(coordenador.nome, '') ILIKE '%' || $4 || '%'
+          )
+      `, baseParams);
+
+      total = countResult.rows[0].total;
+    }
+
+    const paginationClause = pagination
+      ? 'LIMIT $5 OFFSET $6'
+      : '';
+
+    const queryParams = pagination
+      ? [...baseParams, pagination.limit, pagination.offset]
+      : baseParams;
 
     const { rows } = await pool.query(`
       SELECT
@@ -218,6 +264,8 @@ router.get('/classes', async (request, response, next) => {
           OR v.nome ILIKE '%' || $4 || '%'
           OR v.serie_ano ILIKE '%' || $4 || '%'
           OR v.turno ILIKE '%' || $4 || '%'
+          OR e.nome ILIKE '%' || $4 || '%'
+          OR COALESCE(coordenador.nome, '') ILIKE '%' || $4 || '%'
         )
       GROUP BY
         v.id, v.escola_id, e.nome, v.ano_letivo, v.nome,
@@ -225,9 +273,14 @@ router.get('/classes', async (request, response, next) => {
         v.sala, v.status, v.alunos_matriculados,
         v.vagas_disponiveis, coordenador.nome
       ORDER BY v.ano_letivo DESC, e.nome, v.nome
-    `, [scope.schoolId, scope.schoolIds, schoolYear, search]);
+      ${paginationClause}
+    `, queryParams);
 
-    return response.json(rows);
+    if (!pagination) {
+      return response.json(rows);
+    }
+
+    return response.json(paginatedResponse(rows, total, pagination));
   } catch (error) {
     return next(error);
   }
