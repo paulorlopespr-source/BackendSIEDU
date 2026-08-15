@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { pool } from '../database.js';
+import { getPagination, paginatedResponse } from '../utils/pagination.js';
 import { authenticate } from '../middlewares/auth.js';
 import { allowMunicipalAdmin, loadAccessContext } from '../middlewares/access.js';
 import { cpfSchema, emailSchema, strongPasswordSchema } from '../utils/validation.js';
@@ -182,9 +183,30 @@ async function recordPermission(client, userId, typeId, ids, status, action, act
 
 router.use(authenticate, loadAccessContext, allowMunicipalAdmin);
 
-router.get('/', async (_request, response, next) => {
+router.get('/', async (request, response, next) => {
   try {
-    const { rows } = await pool.query(`
+    const search = String(request.query.busca || '').trim();
+    const pagination = getPagination(request.query);
+
+    const filters = `
+      WHERE (
+        $1 = ''
+        OR u.nome ILIKE '%' || $1 || '%'
+        OR COALESCE(u.nome_social, '') ILIKE '%' || $1 || '%'
+        OR u.usuario ILIKE '%' || $1 || '%'
+        OR COALESCE(u.email, '') ILIKE '%' || $1 || '%'
+        OR COALESCE(u.matricula_funcional, '') ILIKE '%' || $1 || '%'
+        OR COALESCE(u.cargo, '') ILIKE '%' || $1 || '%'
+        OR COALESCE(u.funcao_exercida, '') ILIKE '%' || $1 || '%'
+        OR t.nome ILIKE '%' || $1 || '%'
+        OR (
+          REGEXP_REPLACE($1, '\\D', '', 'g') <> ''
+          AND COALESCE(u.cpf, '') LIKE '%' || REGEXP_REPLACE($1, '\\D', '', 'g') || '%'
+        )
+      )
+    `;
+
+    const selectQuery = `
       SELECT u.id, u.nome, u.nome_social AS "nomeSocial", u.cpf, u.usuario, u.email,
         u.matricula_funcional AS "matriculaFuncional", u.cargo,
         u.funcao_exercida AS "funcaoExercida", u.situacao_funcional AS "situacaoFuncional",
@@ -195,14 +217,48 @@ router.get('/', async (_request, response, next) => {
         COALESCE((SELECT JSONB_AGG(JSONB_BUILD_OBJECT('id', e.id, 'nome', e.nome) ORDER BY e.nome)
           FROM escolas e JOIN usuario_escolas ue ON ue.escola_id = e.id
           WHERE ue.usuario_id = u.id), '[]'::JSONB) AS escolas
-      FROM usuarios u JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
-      ORDER BY u.nome
-    `);
-    return response.json(rows.map((row) => ({
+      FROM usuarios u
+      JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
+      ${filters}
+    `;
+
+    if (!pagination) {
+      const { rows } = await pool.query(
+        `${selectQuery} ORDER BY u.nome`,
+        [search],
+      );
+
+      return response.json(rows.map((row) => ({
+        ...row,
+        fotoUrl: row.temFoto ? `/api/users/${row.id}/photo` : null,
+      })));
+    }
+
+    const countResult = await pool.query(`
+      SELECT COUNT(*)::INTEGER AS total
+      FROM usuarios u
+      JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
+      ${filters}
+    `, [search]);
+
+    const total = countResult.rows[0].total;
+
+    const { rows } = await pool.query(
+      `${selectQuery}
+       ORDER BY u.nome
+       LIMIT $2 OFFSET $3`,
+      [search, pagination.limit, pagination.offset],
+    );
+
+    const data = rows.map((row) => ({
       ...row,
       fotoUrl: row.temFoto ? `/api/users/${row.id}/photo` : null,
-    })));
-  } catch (error) { return next(error); }
+    }));
+
+    return response.json(paginatedResponse(data, total, pagination));
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.get('/:id/photo', async (request, response, next) => {
