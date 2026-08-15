@@ -848,7 +848,35 @@ router.post('/enrollments', async (request, response, next) => {
 router.get('/teachers', async (request, response, next) => {
   try {
     const scope = schoolScope(request, request.query.escolaId);
-    const { rows } = await pool.query(`
+    const search = String(request.query.busca || '').trim();
+    const pagination = getPagination(request.query);
+
+    const baseParams = [scope.schoolId, scope.schoolIds, search];
+
+    const filters = `
+      WHERE p.ativo = TRUE AND pe.ativo = TRUE
+        AND (
+          ($1::INTEGER IS NOT NULL AND pe.escola_id = $1)
+          OR (
+            $1::INTEGER IS NULL
+            AND ($2::INTEGER[] IS NULL OR pe.escola_id = ANY($2::INTEGER[]))
+          )
+        )
+        AND (
+          $3 = ''
+          OR p.nome_completo ILIKE '%' || $3 || '%'
+          OR COALESCE(p.matricula_funcional, '') ILIKE '%' || $3 || '%'
+          OR COALESCE(p.especialidade, '') ILIKE '%' || $3 || '%'
+          OR COALESCE(p.formacao, '') ILIKE '%' || $3 || '%'
+          OR e.nome ILIKE '%' || $3 || '%'
+          OR (
+            REGEXP_REPLACE($3, '\\D', '', 'g') <> ''
+            AND COALESCE(p.cpf, '') LIKE '%' || REGEXP_REPLACE($3, '\\D', '', 'g') || '%'
+          )
+        )
+    `;
+
+    const selectQuery = `
       SELECT
         p.id,
         p.nome_completo AS nome,
@@ -865,17 +893,36 @@ router.get('/teachers', async (request, response, next) => {
       FROM professores p
       JOIN professor_escolas pe ON pe.professor_id = p.id
       JOIN escolas e ON e.id = pe.escola_id
-      WHERE p.ativo = TRUE AND pe.ativo = TRUE
-        AND (
-          ($1::INTEGER IS NOT NULL AND pe.escola_id = $1)
-          OR (
-            $1::INTEGER IS NULL
-            AND ($2::INTEGER[] IS NULL OR pe.escola_id = ANY($2::INTEGER[]))
-          )
-        )
-      ORDER BY e.nome, p.nome_completo
-    `, [scope.schoolId, scope.schoolIds]);
-    return response.json(rows);
+      ${filters}
+    `;
+
+    if (!pagination) {
+      const { rows } = await pool.query(
+        `${selectQuery} ORDER BY e.nome, p.nome_completo`,
+        baseParams,
+      );
+
+      return response.json(rows);
+    }
+
+    const countResult = await pool.query(`
+      SELECT COUNT(*)::INTEGER AS total
+      FROM professores p
+      JOIN professor_escolas pe ON pe.professor_id = p.id
+      JOIN escolas e ON e.id = pe.escola_id
+      ${filters}
+    `, baseParams);
+
+    const total = countResult.rows[0].total;
+
+    const { rows } = await pool.query(
+      `${selectQuery}
+       ORDER BY e.nome, p.nome_completo
+       LIMIT $4 OFFSET $5`,
+      [...baseParams, pagination.limit, pagination.offset],
+    );
+
+    return response.json(paginatedResponse(rows, total, pagination));
   } catch (error) {
     return next(error);
   }
