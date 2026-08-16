@@ -7,6 +7,7 @@ import { pool } from '../database.js';
 import { authenticate } from '../middlewares/auth.js';
 import { createRateLimiter } from '../middlewares/security.js';
 import { strongPasswordSchema } from '../utils/validation.js';
+import { sendSystemEmail } from '../services/email.js';
 
 const router = Router();
 
@@ -148,6 +149,13 @@ router.post('/recuperar-senha', recoveryLimiter, async (request, response, next)
       throw transactionError;
     } finally {
       client.release();
+    }
+
+    try {
+      await sendSystemEmail({ to: user.email, subject: 'Código de recuperação de senha — SIEDU-PINDOBAÇU', text: `Olá, ${user.nome}. Seu código de recuperação é ${code}. Ele expira em 15 minutos.` });
+      await pool.query(`UPDATE fila_emails_sistema SET status='Enviado', enviado_em=NOW() WHERE destinatario=$1 AND status='Pendente' AND criado_em > NOW() - INTERVAL '1 minute'`, [user.email]);
+    } catch (emailError) {
+      console.error('Falha no envio real; e-mail permanece na fila:', emailError.message);
     }
 
     return response.json({
