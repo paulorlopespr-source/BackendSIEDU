@@ -5,6 +5,7 @@ export const calendarManagerProfiles = new Set([
   'Secretário Municipal de Educação',
   'Superintendente / Diretor de Ensino',
   'Coordenador Pedagógico Municipal',
+  'Diretor',
 ]);
 
 export const calendarEventTypes = [

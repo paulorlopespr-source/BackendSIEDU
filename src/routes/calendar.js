@@ -17,6 +17,13 @@ router.use((request, response, next) => {
   return next();
 });
 
+async function assertDirectorSchool(request, schoolId) {
+  if (request.access?.perfil !== 'Diretor') return;
+  if (!schoolId) throw Object.assign(new Error('Diretor deve selecionar a escola vinculada.'), { statusCode: 403 });
+  const result = await pool.query(`SELECT 1 FROM usuarios u WHERE u.id=$1 AND (u.escola_id=$2 OR EXISTS (SELECT 1 FROM usuario_escolas ue WHERE ue.usuario_id=u.id AND ue.escola_id=$2)) LIMIT 1`, [request.access.userId, schoolId]);
+  if (!result.rows[0]) throw Object.assign(new Error('Diretor só pode alterar eventos da escola vinculada.'), { statusCode: 403 });
+}
+
 async function resolveDestination(data) {
   if (data.escopo === 'Rede') return { escolaId: null, turmaId: null };
   if (data.escopo === 'Escola') {
@@ -69,6 +76,7 @@ router.post('/events', async (request, response, next) => {
     const data = calendarEventSchema.parse(request.body);
     const destination = await resolveDestination(data);
     if (!destination) return response.status(400).json({ message: 'Escola ou turma não encontrada.' });
+    await assertDirectorSchool(request, destination.escolaId);
     const { rows } = await pool.query(`
       INSERT INTO eventos_calendario_escolar (
         escopo, escola_id, turma_id, titulo, tipo, disciplina,
@@ -89,6 +97,7 @@ router.put('/events/:id', async (request, response, next) => {
     const data = calendarEventSchema.parse(request.body);
     const destination = await resolveDestination(data);
     if (!destination) return response.status(400).json({ message: 'Escola ou turma não encontrada.' });
+    await assertDirectorSchool(request, destination.escolaId);
     const { rows } = await pool.query(`
       UPDATE eventos_calendario_escolar SET
         escopo=$1, escola_id=$2, turma_id=$3, titulo=$4, tipo=$5,
@@ -107,6 +116,10 @@ router.put('/events/:id', async (request, response, next) => {
 
 router.delete('/events/:id', async (request, response, next) => {
   try {
+    if (request.access?.perfil === 'Diretor') {
+      const allowed = await pool.query(`SELECT 1 FROM eventos_calendario_escolar e JOIN usuarios u ON u.id=$2 WHERE e.id=$1 AND (u.escola_id=e.escola_id OR EXISTS (SELECT 1 FROM usuario_escolas ue WHERE ue.usuario_id=u.id AND ue.escola_id=e.escola_id))`, [request.params.id, request.access.userId]);
+      if (!allowed.rows[0]) return response.status(403).json({ message: 'Diretor só pode remover eventos da escola vinculada.' });
+    }
     const { rows } = await pool.query(`
       UPDATE eventos_calendario_escolar
       SET publicado=FALSE, atualizado_em=NOW()
