@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool } from '../database.js';
 import { authenticate } from '../middlewares/auth.js';
 import { allowMunicipalAdmin, loadAccessContext } from '../middlewares/access.js';
+import { getPagination, paginatedResponse } from '../utils/pagination.js';
 
 const router = Router();
 router.use(authenticate, loadAccessContext);
@@ -64,9 +65,23 @@ async function removeUserSchoolBinding(client, userId, schoolId) {
   `, [userId, schoolId]);
 }
 
-router.get('/', async (_request, response, next) => {
+router.get('/', async (request, response, next) => {
   try {
-    const { rows } = await pool.query(`
+    const search = String(request.query.busca || '').trim();
+    const pagination = getPagination(request.query);
+
+    const filters = `
+      WHERE (
+        $1 = ''
+        OR e.codigo_rede ILIKE '%' || $1 || '%'
+        OR e.nome ILIKE '%' || $1 || '%'
+        OR COALESCE(e.categoria, '') ILIKE '%' || $1 || '%'
+        OR COALESCE(e.localidade, '') ILIKE '%' || $1 || '%'
+        OR COALESCE(u.nome, '') ILIKE '%' || $1 || '%'
+      )
+    `;
+
+    const select = `
       SELECT
         e.id,
         e.codigo_rede,
@@ -84,9 +99,45 @@ router.get('/', async (_request, response, next) => {
         u.nome AS diretor
       FROM escolas e
       LEFT JOIN usuarios u ON u.id = e.diretor_usuario_id
-      ORDER BY e.codigo_rede NULLS LAST, e.nome
-    `);
-    response.json(rows);
+      ${filters}
+    `;
+
+    if (!pagination) {
+      const { rows } = await pool.query(
+        `${select}
+         ORDER BY e.codigo_rede NULLS LAST, e.nome`,
+        [search],
+      );
+
+      response.json(rows);
+      return;
+    }
+
+    const [countResult, dataResult] = await Promise.all([
+      pool.query(
+        `
+          SELECT COUNT(*)::int AS total
+          FROM escolas e
+          LEFT JOIN usuarios u ON u.id = e.diretor_usuario_id
+          ${filters}
+        `,
+        [search],
+      ),
+      pool.query(
+        `${select}
+         ORDER BY e.codigo_rede NULLS LAST, e.nome
+         LIMIT $2 OFFSET $3`,
+        [search, pagination.limit, pagination.offset],
+      ),
+    ]);
+
+    response.json(
+      paginatedResponse(
+        dataResult.rows,
+        countResult.rows[0].total,
+        pagination,
+      ),
+    );
   } catch (error) {
     next(error);
   }
@@ -103,7 +154,6 @@ router.get('/:id/overview', allowMunicipalAdmin, async (request, response, next)
       secretaryResult,
       summaryResult,
       classResult,
-      studentResult,
       professionalResult,
     ] = await Promise.all([
       pool.query(`
@@ -248,31 +298,6 @@ router.get('/:id/overview', allowMunicipalAdmin, async (request, response, next)
         ORDER BY turma.ano_letivo DESC, turma.nome
       `, [schoolId]),
       pool.query(`
-        SELECT DISTINCT ON (aluno.id)
-          aluno.id,
-          aluno.nome_completo AS nome,
-          aluno.data_nascimento AS "dataNascimento",
-          aluno.cpf,
-          matricula.numero AS matricula,
-          matricula.status,
-          matricula.ano_letivo AS "anoLetivo",
-          turma.id AS "turmaId",
-          turma.nome AS turma,
-          responsavel.nome_completo AS responsavel,
-          responsavel.telefone_principal AS "contatoResponsavel"
-        FROM matriculas matricula
-        JOIN alunos aluno ON aluno.id = matricula.aluno_id
-        JOIN turmas turma ON turma.id = matricula.turma_id
-        LEFT JOIN aluno_responsaveis aluno_responsavel
-          ON aluno_responsavel.aluno_id = aluno.id
-          AND aluno_responsavel.contato_principal = TRUE
-        LEFT JOIN responsaveis responsavel
-          ON responsavel.id = aluno_responsavel.responsavel_id
-        WHERE matricula.escola_id = $1
-          AND matricula.status IN ('Ativa', 'Pendente')
-        ORDER BY aluno.id, matricula.ano_letivo DESC, matricula.criado_em DESC
-      `, [schoolId]),
-      pool.query(`
         SELECT
           id,
           nome_completo AS nome,
@@ -300,9 +325,76 @@ router.get('/:id/overview', allowMunicipalAdmin, async (request, response, next)
       secretarios: secretaryResult.rows,
       resumo: summaryResult.rows[0],
       turmas: classResult.rows,
-      alunos: studentResult.rows,
+      alunos: [],
       profissionais: professionalResult.rows,
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get('/:id/students', allowMunicipalAdmin, async (request, response, next) => {
+  try {
+    const schoolId = z.coerce.number().int().positive().parse(request.params.id);
+    const pagination = getPagination(request.query, { defaultLimit: 25, maxLimit: 100 }) || { page: 1, limit: 25, offset: 0 };
+    const busca = typeof request.query.busca === 'string' ? request.query.busca.trim() : '';
+    const searchPattern = `%${busca}%`;
+    const filters = [schoolId, searchPattern];
+    const searchClause = `
+      AND ($2 = '%%' OR aluno.nome_completo ILIKE $2
+        OR matricula.numero ILIKE $2
+        OR turma.nome ILIKE $2
+        OR COALESCE(responsavel.nome_completo, '') ILIKE $2)
+    `;
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(`
+        SELECT DISTINCT ON (aluno.id)
+          aluno.id,
+          aluno.nome_completo AS nome,
+          aluno.data_nascimento AS "dataNascimento",
+          aluno.cpf,
+          matricula.numero AS matricula,
+          matricula.status,
+          matricula.ano_letivo AS "anoLetivo",
+          turma.id AS "turmaId",
+          turma.nome AS turma,
+          responsavel.nome_completo AS responsavel,
+          responsavel.telefone_principal AS "contatoResponsavel"
+        FROM matriculas matricula
+        JOIN alunos aluno ON aluno.id = matricula.aluno_id
+        JOIN turmas turma ON turma.id = matricula.turma_id
+        LEFT JOIN aluno_responsaveis aluno_responsavel
+          ON aluno_responsavel.aluno_id = aluno.id
+          AND aluno_responsavel.contato_principal = TRUE
+        LEFT JOIN responsaveis responsavel
+          ON responsavel.id = aluno_responsavel.responsavel_id
+        WHERE matricula.escola_id = $1
+          AND matricula.status IN ('Ativa', 'Pendente')
+          ${searchClause}
+        ORDER BY aluno.id, matricula.ano_letivo DESC, matricula.criado_em DESC
+        LIMIT $3 OFFSET $4
+      `, [...filters, pagination.limit, pagination.offset]),
+      pool.query(`
+        SELECT COUNT(DISTINCT aluno.id)::INTEGER AS total
+        FROM matriculas matricula
+        JOIN alunos aluno ON aluno.id = matricula.aluno_id
+        JOIN turmas turma ON turma.id = matricula.turma_id
+        LEFT JOIN aluno_responsaveis aluno_responsavel
+          ON aluno_responsavel.aluno_id = aluno.id
+          AND aluno_responsavel.contato_principal = TRUE
+        LEFT JOIN responsaveis responsavel
+          ON responsavel.id = aluno_responsavel.responsavel_id
+        WHERE matricula.escola_id = $1
+          AND matricula.status IN ('Ativa', 'Pendente')
+          ${searchClause}
+      `, filters),
+    ]);
+
+    return response.json(paginatedResponse(
+      dataResult.rows,
+      countResult.rows[0].total,
+      pagination,
+    ));
   } catch (error) {
     return next(error);
   }
@@ -480,3 +572,4 @@ router.post('/', allowMunicipalAdmin, async (request, response, next) => {
 });
 
 export default router;
+

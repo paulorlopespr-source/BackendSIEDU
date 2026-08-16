@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../database.js';
+import { getPagination, paginatedResponse } from '../utils/pagination.js';
 import { authenticate } from '../middlewares/auth.js';
 import {
   allowAcademicManagement,
@@ -172,6 +173,51 @@ router.get('/classes', async (request, response, next) => {
     const schoolYear = request.query.anoLetivo
       ? Number(request.query.anoLetivo)
       : null;
+    const pagination = getPagination(request.query);
+
+    const baseParams = [
+      scope.schoolId,
+      scope.schoolIds,
+      schoolYear,
+      search,
+    ];
+
+    let total = null;
+
+    if (pagination) {
+      const countResult = await pool.query(`
+        SELECT COUNT(*)::INTEGER AS total
+        FROM vw_turmas_resumo v
+        JOIN escolas e ON e.id = v.escola_id
+        LEFT JOIN usuarios coordenador ON coordenador.id = v.coordenador_usuario_id
+        WHERE (
+          ($1::INTEGER IS NOT NULL AND v.escola_id = $1)
+          OR (
+            $1::INTEGER IS NULL
+            AND ($2::INTEGER[] IS NULL OR v.escola_id = ANY($2::INTEGER[]))
+          )
+        )
+          AND ($3::INTEGER IS NULL OR v.ano_letivo = $3)
+          AND (
+            $4 = ''
+            OR v.nome ILIKE '%' || $4 || '%'
+            OR v.serie_ano ILIKE '%' || $4 || '%'
+            OR v.turno ILIKE '%' || $4 || '%'
+            OR e.nome ILIKE '%' || $4 || '%'
+            OR COALESCE(coordenador.nome, '') ILIKE '%' || $4 || '%'
+          )
+      `, baseParams);
+
+      total = countResult.rows[0].total;
+    }
+
+    const paginationClause = pagination
+      ? 'LIMIT $5 OFFSET $6'
+      : '';
+
+    const queryParams = pagination
+      ? [...baseParams, pagination.limit, pagination.offset]
+      : baseParams;
 
     const { rows } = await pool.query(`
       SELECT
@@ -218,6 +264,8 @@ router.get('/classes', async (request, response, next) => {
           OR v.nome ILIKE '%' || $4 || '%'
           OR v.serie_ano ILIKE '%' || $4 || '%'
           OR v.turno ILIKE '%' || $4 || '%'
+          OR e.nome ILIKE '%' || $4 || '%'
+          OR COALESCE(coordenador.nome, '') ILIKE '%' || $4 || '%'
         )
       GROUP BY
         v.id, v.escola_id, e.nome, v.ano_letivo, v.nome,
@@ -225,9 +273,14 @@ router.get('/classes', async (request, response, next) => {
         v.sala, v.status, v.alunos_matriculados,
         v.vagas_disponiveis, coordenador.nome
       ORDER BY v.ano_letivo DESC, e.nome, v.nome
-    `, [scope.schoolId, scope.schoolIds, schoolYear, search]);
+      ${paginationClause}
+    `, queryParams);
 
-    return response.json(rows);
+    if (!pagination) {
+      return response.json(rows);
+    }
+
+    return response.json(paginatedResponse(rows, total, pagination));
   } catch (error) {
     return next(error);
   }
@@ -405,30 +458,11 @@ router.get('/students', async (request, response, next) => {
   try {
     const scope = schoolScope(request, request.query.escolaId);
     const search = String(request.query.busca || '').trim();
-    const { rows } = await pool.query(`
-      SELECT DISTINCT ON (a.id)
-        a.id,
-        a.nome_completo AS nome,
-        a.nome_social AS "nomeSocial",
-        a.data_nascimento AS "dataNascimento",
-        a.cpf,
-        a.ativo,
-        m.numero AS matricula,
-        m.status AS "statusMatricula",
-        m.ano_letivo AS "anoLetivo",
-        m.escola_id AS "escolaId",
-        e.nome AS escola,
-        m.turma_id AS "turmaId",
-        t.nome AS turma,
-        r.nome_completo AS responsavel,
-        r.telefone_principal AS "contatoResponsavel"
-      FROM alunos a
-      JOIN matriculas m ON m.aluno_id = a.id
-      JOIN escolas e ON e.id = m.escola_id
-      JOIN turmas t ON t.id = m.turma_id
-      LEFT JOIN aluno_responsaveis ar
-        ON ar.aluno_id = a.id AND ar.contato_principal = TRUE
-      LEFT JOIN responsaveis r ON r.id = ar.responsavel_id
+    const pagination = getPagination(request.query);
+
+    const baseParams = [scope.schoolId, scope.schoolIds, search];
+
+    const filters = `
       WHERE (
         ($1::INTEGER IS NOT NULL AND m.escola_id = $1)
         OR (
@@ -439,13 +473,93 @@ router.get('/students', async (request, response, next) => {
         AND (
           $3 = ''
           OR a.nome_completo ILIKE '%' || $3 || '%'
+          OR COALESCE(a.nome_social, '') ILIKE '%' || $3 || '%'
           OR m.numero ILIKE '%' || $3 || '%'
-          OR COALESCE(a.cpf, '') LIKE '%' || REGEXP_REPLACE($3, '\\D', '', 'g') || '%'
+          OR (
+            REGEXP_REPLACE($3, '\\D', '', 'g') <> ''
+            AND COALESCE(a.cpf, '') LIKE '%' || REGEXP_REPLACE($3, '\\D', '', 'g') || '%'
+          )
         )
-      ORDER BY a.id, m.ano_letivo DESC, m.criado_em DESC
-    `, [scope.schoolId, scope.schoolIds, search]);
+    `;
 
-    return response.json(rows);
+    if (!pagination) {
+      const { rows } = await pool.query(`
+        SELECT DISTINCT ON (a.id)
+          a.id,
+          a.nome_completo AS nome,
+          a.nome_social AS "nomeSocial",
+          a.data_nascimento AS "dataNascimento",
+          a.cpf,
+          a.ativo,
+          m.numero AS matricula,
+          m.status AS "statusMatricula",
+          m.ano_letivo AS "anoLetivo",
+          m.escola_id AS "escolaId",
+          e.nome AS escola,
+          m.turma_id AS "turmaId",
+          t.nome AS turma,
+          r.nome_completo AS responsavel,
+          r.telefone_principal AS "contatoResponsavel"
+        FROM alunos a
+        JOIN matriculas m ON m.aluno_id = a.id
+        JOIN escolas e ON e.id = m.escola_id
+        JOIN turmas t ON t.id = m.turma_id
+        LEFT JOIN aluno_responsaveis ar
+          ON ar.aluno_id = a.id AND ar.contato_principal = TRUE
+        LEFT JOIN responsaveis r ON r.id = ar.responsavel_id
+        ${filters}
+        ORDER BY a.id, m.ano_letivo DESC, m.criado_em DESC
+      `, baseParams);
+
+      return response.json(rows);
+    }
+
+    const countResult = await pool.query(`
+      SELECT COUNT(DISTINCT a.id)::INTEGER AS total
+      FROM alunos a
+      JOIN matriculas m ON m.aluno_id = a.id
+      JOIN escolas e ON e.id = m.escola_id
+      JOIN turmas t ON t.id = m.turma_id
+      ${filters}
+    `, baseParams);
+
+    const total = countResult.rows[0].total;
+
+    const { rows } = await pool.query(`
+      WITH latest_students AS (
+        SELECT DISTINCT ON (a.id)
+          a.id,
+          a.nome_completo AS nome,
+          a.nome_social AS "nomeSocial",
+          a.data_nascimento AS "dataNascimento",
+          a.cpf,
+          a.ativo,
+          m.numero AS matricula,
+          m.status AS "statusMatricula",
+          m.ano_letivo AS "anoLetivo",
+          m.escola_id AS "escolaId",
+          e.nome AS escola,
+          m.turma_id AS "turmaId",
+          t.nome AS turma,
+          r.nome_completo AS responsavel,
+          r.telefone_principal AS "contatoResponsavel"
+        FROM alunos a
+        JOIN matriculas m ON m.aluno_id = a.id
+        JOIN escolas e ON e.id = m.escola_id
+        JOIN turmas t ON t.id = m.turma_id
+        LEFT JOIN aluno_responsaveis ar
+          ON ar.aluno_id = a.id AND ar.contato_principal = TRUE
+        LEFT JOIN responsaveis r ON r.id = ar.responsavel_id
+        ${filters}
+        ORDER BY a.id, m.ano_letivo DESC, m.criado_em DESC
+      )
+      SELECT *
+      FROM latest_students
+      ORDER BY nome
+      LIMIT $4 OFFSET $5
+    `, [...baseParams, pagination.limit, pagination.offset]);
+
+    return response.json(paginatedResponse(rows, total, pagination));
   } catch (error) {
     return next(error);
   }
@@ -734,7 +848,35 @@ router.post('/enrollments', async (request, response, next) => {
 router.get('/teachers', async (request, response, next) => {
   try {
     const scope = schoolScope(request, request.query.escolaId);
-    const { rows } = await pool.query(`
+    const search = String(request.query.busca || '').trim();
+    const pagination = getPagination(request.query);
+
+    const baseParams = [scope.schoolId, scope.schoolIds, search];
+
+    const filters = `
+      WHERE p.ativo = TRUE AND pe.ativo = TRUE
+        AND (
+          ($1::INTEGER IS NOT NULL AND pe.escola_id = $1)
+          OR (
+            $1::INTEGER IS NULL
+            AND ($2::INTEGER[] IS NULL OR pe.escola_id = ANY($2::INTEGER[]))
+          )
+        )
+        AND (
+          $3 = ''
+          OR p.nome_completo ILIKE '%' || $3 || '%'
+          OR COALESCE(p.matricula_funcional, '') ILIKE '%' || $3 || '%'
+          OR COALESCE(p.especialidade, '') ILIKE '%' || $3 || '%'
+          OR COALESCE(p.formacao, '') ILIKE '%' || $3 || '%'
+          OR e.nome ILIKE '%' || $3 || '%'
+          OR (
+            REGEXP_REPLACE($3, '\\D', '', 'g') <> ''
+            AND COALESCE(p.cpf, '') LIKE '%' || REGEXP_REPLACE($3, '\\D', '', 'g') || '%'
+          )
+        )
+    `;
+
+    const selectQuery = `
       SELECT
         p.id,
         p.nome_completo AS nome,
@@ -751,17 +893,36 @@ router.get('/teachers', async (request, response, next) => {
       FROM professores p
       JOIN professor_escolas pe ON pe.professor_id = p.id
       JOIN escolas e ON e.id = pe.escola_id
-      WHERE p.ativo = TRUE AND pe.ativo = TRUE
-        AND (
-          ($1::INTEGER IS NOT NULL AND pe.escola_id = $1)
-          OR (
-            $1::INTEGER IS NULL
-            AND ($2::INTEGER[] IS NULL OR pe.escola_id = ANY($2::INTEGER[]))
-          )
-        )
-      ORDER BY e.nome, p.nome_completo
-    `, [scope.schoolId, scope.schoolIds]);
-    return response.json(rows);
+      ${filters}
+    `;
+
+    if (!pagination) {
+      const { rows } = await pool.query(
+        `${selectQuery} ORDER BY e.nome, p.nome_completo`,
+        baseParams,
+      );
+
+      return response.json(rows);
+    }
+
+    const countResult = await pool.query(`
+      SELECT COUNT(*)::INTEGER AS total
+      FROM professores p
+      JOIN professor_escolas pe ON pe.professor_id = p.id
+      JOIN escolas e ON e.id = pe.escola_id
+      ${filters}
+    `, baseParams);
+
+    const total = countResult.rows[0].total;
+
+    const { rows } = await pool.query(
+      `${selectQuery}
+       ORDER BY e.nome, p.nome_completo
+       LIMIT $4 OFFSET $5`,
+      [...baseParams, pagination.limit, pagination.offset],
+    );
+
+    return response.json(paginatedResponse(rows, total, pagination));
   } catch (error) {
     return next(error);
   }
