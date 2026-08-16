@@ -45,7 +45,7 @@ router.post('/login', loginLimiter, async (request, response, next) => {
     const { usuario, senha } = loginSchema.parse(request.body);
     const { rows } = await pool.query(`
       SELECT
-        u.id, u.nome, u.usuario, u.email, u.matricula_funcional, u.senha_hash,
+        u.id, u.nome, u.usuario, u.email, u.matricula_funcional, u.termos_aceitos_em, u.senha_hash,
         u.deve_alterar_senha, u.ativo, t.nome AS perfil, t.nivel,
         t.grupo, t.escopo_acesso, t.acesso_sistema
       FROM usuarios u
@@ -87,11 +87,20 @@ router.post('/login', loginLimiter, async (request, response, next) => {
         grupo: user.grupo,
         escopoAcesso: user.escopo_acesso,
         deveAlterarSenha: user.deve_alterar_senha,
+        termosAceitosEm: user.termos_aceitos_em,
       },
     });
   } catch (error) {
     return next(error);
   }
+});
+
+router.post('/termos', authenticate, async (request, response, next) => {
+  try {
+    const { rows } = await pool.query('UPDATE usuarios SET termos_aceitos_em = COALESCE(termos_aceitos_em, NOW()) WHERE id = $1 RETURNING termos_aceitos_em', [request.user.sub]);
+    if (!rows[0]) return response.status(404).json({ message: 'Usuário não encontrado.' });
+    return response.json({ aceito: true, termosAceitosEm: rows[0].termos_aceitos_em });
+  } catch (error) { return next(error); }
 });
 
 router.post('/recuperar-senha', recoveryLimiter, async (request, response, next) => {
