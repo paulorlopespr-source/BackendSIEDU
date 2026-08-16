@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { pool } from '../database.js';
 import { authenticate } from '../middlewares/auth.js';
 import { loadAccessContext } from '../middlewares/access.js';
+import { getPagination, paginatedResponse } from '../utils/pagination.js';
 
 const router = Router();
 router.use(authenticate, loadAccessContext);
@@ -90,8 +91,18 @@ router.get('/classes/:id/students', async (request, response, next) => {
   const classId=Number(request.params.id);
   const allowed=await pool.query(`SELECT 1 FROM professores p JOIN turma_professores tp ON tp.professor_id=p.id WHERE p.usuario_id=$1 AND tp.turma_id=$2 AND p.ativo=TRUE`,[request.access.userId,classId]);
   if(!allowed.rows[0]) return response.status(403).json({message:'Esta turma não está atribuída ao professor.'});
-  const {rows}=await pool.query(`SELECT a.id,a.nome_completo AS nome,a.nome_social AS "nomeSocial",m.id AS "matriculaId",m.status FROM matriculas m JOIN alunos a ON a.id=m.aluno_id WHERE m.turma_id=$1 AND m.status='Ativa' ORDER BY a.nome_completo`,[classId]);
-  return response.json(rows);
+  const search=String(request.query.busca||'').trim();
+  const pagination=getPagination(request.query);
+  const params=[classId,search];
+  const where=`m.turma_id=$1 AND m.status='Ativa' AND ($2='' OR a.nome_completo ILIKE '%'||$2||'%' OR COALESCE(a.nome_social,'') ILIKE '%'||$2||'%')`;
+  if(!pagination){
+   const {rows}=await pool.query(`SELECT a.id,a.nome_completo AS nome,a.nome_social AS "nomeSocial",m.id AS "matriculaId",m.status FROM matriculas m JOIN alunos a ON a.id=m.aluno_id WHERE ${where} ORDER BY a.nome_completo`,params);
+   return response.json(rows);
+  }
+  const totalResult=await pool.query(`SELECT COUNT(*)::INTEGER AS total FROM matriculas m JOIN alunos a ON a.id=m.aluno_id WHERE ${where}`,params);
+  const offset=pagination.offset;
+  const {rows}=await pool.query(`SELECT a.id,a.nome_completo AS nome,a.nome_social AS "nomeSocial",m.id AS "matriculaId",m.status FROM matriculas m JOIN alunos a ON a.id=m.aluno_id WHERE ${where} ORDER BY a.nome_completo LIMIT $3 OFFSET $4`,[...params,pagination.limit,offset]);
+  return response.json(paginatedResponse(rows,totalResult.rows[0].total,pagination));
  } catch(error){ return next(error); }
 });
 
