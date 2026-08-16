@@ -150,6 +150,7 @@ router.get('/:id/overview', allowMunicipalAdmin, async (request, response, next)
     const [
       schoolResult,
       directorResult,
+      viceDirectorResult,
       coordinatorResult,
       secretaryResult,
       summaryResult,
@@ -173,6 +174,18 @@ router.get('/:id/overview', allowMunicipalAdmin, async (request, response, next)
           e.ativo
         FROM escolas e
         WHERE e.id = $1
+      `, [schoolId]),
+      pool.query(`
+        SELECT DISTINCT u.id, u.nome, u.usuario, u.email
+        FROM usuarios u
+        JOIN tipos_usuarios tipo ON tipo.id = u.tipo_usuario_id
+        WHERE u.ativo = TRUE
+          AND LOWER(tipo.nome) LIKE '%vice%diretor%'
+          AND (u.escola_id = $1 OR EXISTS (
+            SELECT 1 FROM usuario_escolas vinculo
+            WHERE vinculo.usuario_id = u.id AND vinculo.escola_id = $1
+          ))
+        ORDER BY u.nome
       `, [schoolId]),
       pool.query(`
         SELECT
@@ -321,6 +334,7 @@ router.get('/:id/overview', allowMunicipalAdmin, async (request, response, next)
     return response.json({
       escola: schoolResult.rows[0],
       diretor: directorResult.rows[0] || null,
+      viceDiretores: viceDirectorResult.rows,
       coordenadores: coordinatorResult.rows,
       secretarios: secretaryResult.rows,
       resumo: summaryResult.rows[0],
