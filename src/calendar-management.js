@@ -43,6 +43,7 @@ export const calendarEventSchema = z.object({
   observacao: z.string().trim().max(4000).optional().default(''),
   destaque: z.boolean().optional().default(false),
   publicado: z.boolean().optional().default(true),
+  cor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#176fe3'),
 }).superRefine((data, context) => {
   if (data.escopo === 'Escola' && !data.escolaId) {
     context.addIssue({ code: 'custom', path: ['escolaId'], message: 'Selecione a escola.' });
