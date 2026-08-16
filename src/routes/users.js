@@ -38,7 +38,7 @@ const userSchema = z.object({
   enderecoResidencial: optionalText(500),
   contatoEmergenciaNome: optionalText(150),
   contatoEmergenciaTelefone: optionalText(30),
-  matriculaFuncional: z.string().trim().min(2).max(50),
+  matriculaFuncional: optionalText(50),
   cargo: z.string().trim().min(2).max(120),
   funcaoExercida: z.string().trim().min(2).max(120),
   tipoVinculo: z.enum(['efetivo', 'contratado', 'comissionado', 'temporario', 'cedido', 'estagiario', 'terceirizado']),
@@ -68,7 +68,7 @@ const schoolBindingsSchema = z.object({
 const photoSchema = z.object({ fotoBase64: z.string().min(20).max(3000000) });
 const allowedEducationProfiles = new Set([
   'Secretário Municipal de Educação', 'Superintendente / Diretor de Ensino',
-  'Coordenador Pedagógico Municipal', 'Técnico da Secretaria de Educação',
+  'Coordenador Pedagógico Municipal', 'Secretaria Administrativa da Educação', 'Técnico da Secretaria de Educação',
   'Diretor', 'Vice-Diretor', 'Coordenador Pedagógico', 'Secretário Escolar',
   'Auxiliar/Assistente Administrativo', 'Professor',
   'Auxiliar de Vida Escolar / Cuidador', 'Auxiliar de Serviços Gerais',
@@ -107,6 +107,15 @@ function decodePhoto(dataUrl) {
     throw httpError(400, 'A foto deve ter no máximo 2 MB.');
   }
   return { bytes, mime: match[1], id: randomUUID() };
+}
+
+async function generateSecretariaRegistration(client) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const value = `SEdu${String(Math.floor(1000 + Math.random() * 9000))}`;
+    const { rowCount } = await client.query('SELECT 1 FROM usuarios WHERE matricula_funcional = $1 LIMIT 1', [value]);
+    if (!rowCount) return value;
+  }
+  throw httpError(503, 'Não foi possível gerar uma matrícula da Secretaria de Educação disponível.');
 }
 
 export function uniqueSchoolIds(ids) { return [...new Set(ids.map(Number))]; }
@@ -300,6 +309,7 @@ router.post('/', allowUserAdministration, async (request, response, next) => {
     await assertSchoolsExist(client, schoolIds);
     const photo = decodePhoto(data.fotoBase64);
     const temporaryPassword = data.senhaTemporaria || `Siedu${Math.floor(100000 + Math.random() * 900000)}!`;
+    const secretariaRegistration = data.matriculaFuncional || await generateSecretariaRegistration(client);
     const accessStatus = profile.acesso_sistema ? data.situacaoAcesso : 'bloqueado';
 
     await client.query('BEGIN');
@@ -323,7 +333,7 @@ router.post('/', allowUserAdministration, async (request, response, next) => {
       data.genero || null, data.telefoneInstitucional || null, data.email || null,
       data.emailPessoal || null, data.enderecoResidencial || null,
       data.contatoEmergenciaNome || null, data.contatoEmergenciaTelefone || null,
-      data.matriculaFuncional, data.cargo, data.funcaoExercida, data.tipoVinculo,
+      secretariaRegistration, data.cargo, data.funcaoExercida, data.tipoVinculo,
       data.situacaoFuncional, data.dataAdmissao, data.dataDesligamento || null,
       data.cargaHorariaSemanal || null, data.turnosTrabalho, data.secretariaSetor || null,
       data.disciplinas, data.turmasAtendidas, data.gestorImediato || null,
@@ -343,7 +353,7 @@ router.post('/', allowUserAdministration, async (request, response, next) => {
     }
     await client.query('COMMIT');
     return response.status(201).json({
-      user: { ...rows[0], perfil: profile.nome, escolas: await listSchools(client, rows[0].id) },
+      user: { ...rows[0], perfil: profile.nome, matriculaSecretaria: secretariaRegistration, escolas: await listSchools(client, rows[0].id) },
       senhaTemporaria: profile.acesso_sistema ? temporaryPassword : null,
       primeiroAcesso: profile.acesso_sistema,
       doisFatoresObrigatorio: profile.nivel <= 3,

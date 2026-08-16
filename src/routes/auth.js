@@ -45,7 +45,7 @@ router.post('/login', loginLimiter, async (request, response, next) => {
     const { usuario, senha } = loginSchema.parse(request.body);
     const { rows } = await pool.query(`
       SELECT
-        u.id, u.nome, u.usuario, u.email, u.senha_hash,
+        u.id, u.nome, u.usuario, u.email, u.matricula_funcional, u.senha_hash,
         u.deve_alterar_senha, u.ativo, t.nome AS perfil, t.nivel,
         t.grupo, t.escopo_acesso, t.acesso_sistema
       FROM usuarios u
@@ -80,6 +80,7 @@ router.post('/login', loginLimiter, async (request, response, next) => {
         id: user.id,
         nome: user.nome,
         usuario: user.usuario,
+        matriculaSecretaria: user.matricula_funcional,
         email: user.email,
         perfil: user.perfil,
         nivel: user.nivel,
