@@ -1,0 +1,2 @@
+ALTER TABLE eventos_calendario_escolar
+  ADD COLUMN IF NOT EXISTS cor VARCHAR(7) NOT NULL DEFAULT '#176fe3';

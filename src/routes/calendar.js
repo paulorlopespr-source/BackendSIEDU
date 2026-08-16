@@ -42,7 +42,7 @@ const selectEvents = `
     e.disciplina, e.data_inicio AS "dataInicio", e.data_fim AS "dataFim",
     TO_CHAR(e.hora_inicio, 'HH24:MI') AS "horaInicio",
     TO_CHAR(e.hora_fim, 'HH24:MI') AS "horaFim",
-    e.observacao, e.destaque, e.publicado,
+    e.observacao, e.destaque, e.publicado, e.cor,
     u.nome AS "criadoPor", e.atualizado_em AS "atualizadoEm"
   FROM eventos_calendario_escolar e
   LEFT JOIN escolas es ON es.id = e.escola_id
@@ -81,13 +81,13 @@ router.post('/events', async (request, response, next) => {
       INSERT INTO eventos_calendario_escolar (
         escopo, escola_id, turma_id, titulo, tipo, disciplina,
         data_inicio, data_fim, hora_inicio, hora_fim, observacao,
-        destaque, publicado, criado_por
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        destaque, publicado, cor, criado_por
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       RETURNING id
     `, [data.escopo, destination.escolaId, destination.turmaId, data.titulo,
       data.tipo, data.disciplina || null, data.dataInicio, data.dataFim,
       data.horaInicio, data.horaFim, data.observacao || null,
-      data.destaque, data.publicado, request.access.userId]);
+      data.destaque, data.publicado, data.cor, request.access.userId]);
     return response.status(201).json({ id: rows[0].id, message: 'Evento publicado no calendário escolar.' });
   } catch (error) { return next(error); }
 });
@@ -102,13 +102,13 @@ router.put('/events/:id', async (request, response, next) => {
       UPDATE eventos_calendario_escolar SET
         escopo=$1, escola_id=$2, turma_id=$3, titulo=$4, tipo=$5,
         disciplina=$6, data_inicio=$7, data_fim=$8, hora_inicio=$9,
-        hora_fim=$10, observacao=$11, destaque=$12, publicado=$13,
+        hora_fim=$10, observacao=$11, destaque=$12, publicado=$13, cor=$14,
         atualizado_em=NOW()
-      WHERE id=$14 RETURNING id
+      WHERE id=$15 RETURNING id
     `, [data.escopo, destination.escolaId, destination.turmaId, data.titulo,
       data.tipo, data.disciplina || null, data.dataInicio, data.dataFim,
       data.horaInicio, data.horaFim, data.observacao || null,
-      data.destaque, data.publicado, request.params.id]);
+      data.destaque, data.publicado, data.cor, request.params.id]);
     if (!rows[0]) return response.status(404).json({ message: 'Evento não encontrado.' });
     return response.json({ id: rows[0].id, message: 'Evento do calendário atualizado.' });
   } catch (error) { return next(error); }

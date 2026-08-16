@@ -1,7 +1,7 @@
 export const DEMAND_PROFILES = Object.freeze({
   SUPER_ADMIN: 'Super Administrador',
   EDUCATION_SECRETARY: 'Secretário Municipal de Educação',
-  ADMINISTRATION: 'Técnico da Secretaria de Educação',
+  ADMINISTRATION: 'Secretaria Administrativa da Educação',
   DIRECTOR: 'Diretor',
   VICE_DIRECTOR: 'Vice-Diretor',
 });
@@ -16,7 +16,7 @@ const educationProfiles = new Set([
 
 export const canCreateSchoolDemand = (access) => directorProfiles.has(access?.perfil);
 export const canDecideSchoolDemand = (access) => educationProfiles.has(access?.perfil);
-export const canExecuteSchoolDemand = (access) => access?.perfil === DEMAND_PROFILES.ADMINISTRATION;
+export const canExecuteSchoolDemand = (access) => [DEMAND_PROFILES.ADMINISTRATION, 'Técnico da Secretaria de Educação'].includes(access?.perfil);
 export const canAccessDemandWorkflow = (access) => (
   canCreateSchoolDemand(access)
   || canDecideSchoolDemand(access)

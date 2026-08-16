@@ -9,7 +9,7 @@ const educationEmployeeProfiles = [
   'Secretário Municipal de Educação',
   'Superintendente / Diretor de Ensino',
   'Coordenador Pedagógico Municipal',
-  'Técnico da Secretaria de Educação',
+  'Secretaria Administrativa da Educação',
   'Diretor',
   'Vice-Diretor',
   'Coordenador Pedagógico',
