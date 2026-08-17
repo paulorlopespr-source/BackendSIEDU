@@ -13,7 +13,8 @@
     "test:user-bindings-api": "node src/scripts/smoke-user-bindings.js",
     "check": "node --check src/server.js",
     "db:migrate": "node src/scripts/migrate.js",
-    "db:seed-admin": "node src/scripts/seed-admin.js"
+    "db:seed-admin": "node src/scripts/seed-admin.js",
+    "db:reset-homolog-users": "node src/scripts/reset-homologation-users.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -25,5 +26,4 @@
     "zod": "^4.4.3"
   }
 }
-
 

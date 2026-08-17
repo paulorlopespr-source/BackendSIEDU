@@ -47,7 +47,7 @@ router.post('/login', loginLimiter, async (request, response, next) => {
     const { rows } = await pool.query(`
       SELECT
         u.id, u.nome, u.usuario, u.email, u.matricula_funcional, u.termos_aceitos_em, u.senha_hash,
-        u.deve_alterar_senha, u.ativo, t.nome AS perfil, t.nivel,
+        u.deve_alterar_senha, u.ativo, u.situacao_acesso, t.nome AS perfil, t.nivel,
         t.grupo, t.escopo_acesso, t.acesso_sistema
       FROM usuarios u
       JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
@@ -56,7 +56,8 @@ router.post('/login', loginLimiter, async (request, response, next) => {
     `, [usuario]);
 
     const user = rows[0];
-    if (!user || !user.ativo || !(await bcrypt.compare(senha, user.senha_hash))) {
+    if (!user || !user.ativo || user.situacao_acesso !== 'ativo'
+        || !(await bcrypt.compare(senha, user.senha_hash))) {
       return response.status(401).json({ message: 'Usuário ou senha inválidos.' });
     }
 
