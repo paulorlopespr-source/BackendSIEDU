@@ -87,11 +87,12 @@ async function consolidatedIndicators(request) {
 
 router.get('/overview', requireAdministrativeOverview, async (request, response, next) => {
   try {
-    const [schools, demands, meetings, ideb] = await Promise.all([
+    const [schools, demands, meetings, ideb, employees] = await Promise.all([
       consolidatedIndicators(request),
       pool.query(`SELECT status, COUNT(*)::int AS total FROM demandas_municipais GROUP BY status`),
       pool.query(`SELECT COUNT(*)::int AS total FROM reunioes_municipais WHERE inicio>=NOW() AND status='Agendada'`),
       pool.query(`SELECT ano, ROUND(AVG(valor)::numeric,2)::float8 AS valor, ROUND(AVG(meta)::numeric,2)::float8 AS meta FROM resultados_ideb GROUP BY ano ORDER BY ano`),
+      pool.query(`SELECT COUNT(*)::int AS total FROM usuarios WHERE ativo=TRUE AND COALESCE(situacao_funcional,'ativo')='ativo'`),
     ]);
     const totals = schools.reduce((value, school) => ({
       schools: value.schools + 1,
@@ -100,6 +101,7 @@ router.get('/overview', requireAdministrativeOverview, async (request, response,
       professors: value.professors + school.professores,
       employees: value.employees + school.funcionarios,
     }), { schools: 0, students: 0, classes: 0, professors: 0, employees: 0 });
+    totals.employees = employees.rows[0].total;
     return response.json({
       totals,
       schools,
