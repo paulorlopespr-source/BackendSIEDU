@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { pool } from '../database.js';
 import { getPagination, paginatedResponse } from '../utils/pagination.js';
 import { authenticate } from '../middlewares/auth.js';
-import { allowMunicipalAdmin, loadAccessContext } from '../middlewares/access.js';
+import { loadAccessContext } from '../middlewares/access.js';
 import { cpfSchema, emailSchema, strongPasswordSchema } from '../utils/validation.js';
 
 const router = Router();
@@ -96,6 +96,27 @@ function allowUserAdministration(request, response, next) {
     return response.status(403).json({ message: 'Este perfil pode consultar a rede, mas não pode criar, excluir ou alterar cadastros de usuários.' });
   }
   return next();
+}
+
+const administrativeProfiles = new Set([
+  'Técnico da Secretaria de Educação',
+  'Secretaria Administrativa da Educação',
+]);
+
+function allowPersonnelPortal(request, response, next) {
+  if (request.access?.municipal || administrativeProfiles.has(request.access?.perfil)) return next();
+  return response.status(403).json({ message: 'Acesso exclusivo da gestão de pessoas da Secretaria de Educação.' });
+}
+
+function allowPersonnelAdministration(request, response, next) {
+  if (request.access?.municipal || administrativeProfiles.has(request.access?.perfil)) return next();
+  return response.status(403).json({ message: 'Seu perfil pode consultar, mas não administrar cadastros funcionais.' });
+}
+
+function assertOperationalTarget(request, profile) {
+  if (administrativeProfiles.has(request.access?.perfil) && Number(profile.nivel) <= 3) {
+    throw httpError(403, 'A Secretaria Administrativa não pode criar ou alterar perfis estratégicos da gestão municipal.');
+  }
 }
 
 function decodePhoto(dataUrl) {
@@ -190,7 +211,7 @@ async function recordPermission(client, userId, typeId, ids, status, action, act
   `, [userId, typeId, ids, status, action, actorId]);
 }
 
-router.use(authenticate, loadAccessContext, allowMunicipalAdmin);
+router.use(authenticate, loadAccessContext, allowPersonnelPortal);
 
 router.get('/', async (request, response, next) => {
   try {
@@ -286,11 +307,12 @@ router.get('/:id/photo', async (request, response, next) => {
   } catch (error) { return next(error); }
 });
 
-router.post('/', allowUserAdministration, async (request, response, next) => {
+router.post('/', allowPersonnelAdministration, async (request, response, next) => {
   const client = await pool.connect();
   try {
     const data = userSchema.parse(request.body);
     const profile = await findProfile(client, data.tipoUsuarioId);
+    assertOperationalTarget(request, profile);
     if (!allowedEducationProfiles.has(profile.nome)) {
       throw httpError(400, 'Selecione um perfil válido de funcionário da educação.');
     }
@@ -364,7 +386,7 @@ router.post('/', allowUserAdministration, async (request, response, next) => {
   } finally { client.release(); }
 });
 
-router.patch('/:id', allowUserAdministration, async (request, response, next) => {
+router.patch('/:id', allowPersonnelAdministration, async (request, response, next) => {
   const client = await pool.connect();
   try {
     const data = z.object({
@@ -378,6 +400,7 @@ router.patch('/:id', allowUserAdministration, async (request, response, next) =>
     }).refine((value) => Object.values(value).some((item) => item !== undefined), 'Informe ao menos uma alteração.').parse(request.body);
     await client.query('BEGIN');
     const user = await findUser(client, request.params.id, true);
+    assertOperationalTarget(request, user);
     const ids = data.escolaIds ? uniqueSchoolIds(data.escolaIds) : null;
     if (ids) {
       validateSchoolBindings(user.perfil, ids);
@@ -446,6 +469,7 @@ router.patch('/:id/schools', async (request, response, next) => {
     const ids = uniqueSchoolIds(escolaIds);
     await client.query('BEGIN');
     const user = await findUser(client, request.params.id, true);
+    assertOperationalTarget(request, user);
     validateSchoolBindings(user.perfil, ids);
     await assertSchoolsExist(client, ids);
     await syncUserSchools(client, user.id, ids);
