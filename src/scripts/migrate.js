@@ -3,7 +3,14 @@ import { resolve } from 'node:path';
 import { pool } from '../database.js';
 import { migrations } from '../migrations.js';
 
-await pool.query(`
+const migrationEnvironment = process.env.SIEDU_ENV
+  || process.env.RAILWAY_ENVIRONMENT_NAME
+  || (process.env.RAILWAY_GIT_BRANCH === 'homologacao' ? 'homologation' : 'unknown');
+
+const client = await pool.connect();
+await client.query("SELECT set_config('siedu.environment', $1, false)", [migrationEnvironment]);
+
+await client.query(`
   CREATE TABLE IF NOT EXISTS schema_migrations (
     arquivo VARCHAR(255) PRIMARY KEY,
     aplicado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -11,7 +18,7 @@ await pool.query(`
 `);
 
 for (const fileName of migrations) {
-  const alreadyApplied = await pool.query(
+  const alreadyApplied = await client.query(
     `
       SELECT 1
       FROM schema_migrations
@@ -37,9 +44,9 @@ for (const fileName of migrations) {
     await readFile(migrationPath, 'utf8')
   ).replace(/^\uFEFF/, '');
 
-  await pool.query(sql);
+  await client.query(sql);
 
-  await pool.query(
+  await client.query(
     `
       INSERT INTO schema_migrations (arquivo)
       VALUES ($1)
@@ -50,6 +57,7 @@ for (const fileName of migrations) {
   console.log(`Migration ${fileName} aplicada com sucesso.`);
 }
 
+client.release();
 await pool.end();
 
 console.log('Todas as migrations foram processadas.');
