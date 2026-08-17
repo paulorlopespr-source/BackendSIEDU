@@ -6,9 +6,11 @@ import { migrations } from '../migrations.js';
 const migrationEnvironment = process.env.SIEDU_ENV
   || process.env.RAILWAY_ENVIRONMENT_NAME
   || (process.env.RAILWAY_GIT_BRANCH === 'homologacao' ? 'homologation' : 'unknown');
+const railwayEnvironmentId = process.env.RAILWAY_ENVIRONMENT_ID || '';
 
 const client = await pool.connect();
 await client.query("SELECT set_config('siedu.environment', $1, false)", [migrationEnvironment]);
+await client.query("SELECT set_config('siedu.railway_environment_id', $1, false)", [railwayEnvironmentId]);
 
 await client.query(`
   CREATE TABLE IF NOT EXISTS schema_migrations (
