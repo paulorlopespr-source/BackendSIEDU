@@ -31,4 +31,5 @@ export const migrations = [
   '57_usuario_teste_secretaria_administrativa_homologacao.sql',
   '58_corrigir_usuario_teste_sec_homologacao.sql',
   '59_ferias_afastamentos_funcionais.sql',
+  '60_cid_alerta_atestados.sql',
 ];
