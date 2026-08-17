@@ -29,4 +29,5 @@ export const migrations = [
   '55_anexos_demandas_escolares.sql',
   '56_cor_eventos_calendario.sql',
   '57_usuario_teste_secretaria_administrativa_homologacao.sql',
+  '58_corrigir_usuario_teste_sec_homologacao.sql',
 ];
