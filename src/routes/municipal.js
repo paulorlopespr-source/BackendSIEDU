@@ -25,9 +25,20 @@ const managementProfiles = new Set([
   'Superintendente / Diretor de Ensino',
   'Coordenador Pedagógico Municipal',
 ]);
+const administrativeProfiles = new Set([
+  'Técnico da Secretaria de Educação',
+  'Secretaria Administrativa da Educação',
+]);
 
 function hasMunicipalScope(request) {
   return Boolean(request.access?.municipal || managementProfiles.has(request.access?.perfil));
+}
+
+function requireAdministrativeOverview(request, response, next) {
+  if (!hasMunicipalScope(request) && !administrativeProfiles.has(request.access?.perfil)) {
+    return response.status(403).json({ message: 'Acesso exclusivo da gestão administrativa municipal.' });
+  }
+  return next();
 }
 
 function requireMunicipal(request, response, next) {
@@ -74,7 +85,7 @@ async function consolidatedIndicators(request) {
   return rows;
 }
 
-router.get('/overview', requireMunicipal, async (request, response, next) => {
+router.get('/overview', requireAdministrativeOverview, async (request, response, next) => {
   try {
     const [schools, demands, meetings, ideb] = await Promise.all([
       consolidatedIndicators(request),
