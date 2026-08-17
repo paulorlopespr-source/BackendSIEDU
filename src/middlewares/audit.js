@@ -12,6 +12,8 @@ const secretFields = new Set([
   'senhaTemporaria',
   'codigo',
   'comprovanteArquivo',
+  'documento',
+  'documentoDados',
   'token',
 ]);
 

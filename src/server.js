@@ -22,6 +22,7 @@ import referenceRouter from './routes/reference.js';
 import schoolsRouter from './routes/schools.js';
 import transportRouter from './routes/transport.js';
 import usersRouter from './routes/users.js';
+import personnelLeavesRouter from './routes/personnel-leaves.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -60,6 +61,7 @@ app.get('/', (_request, response) => response.json({
 app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/personnel-leaves', personnelLeavesRouter);
 app.use('/api/schools', schoolsRouter);
 app.use('/api/reference', referenceRouter);
 app.use('/api/transport', transportRouter);
