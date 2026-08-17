@@ -16,6 +16,14 @@ test('aceita somente usuários de teste conhecidos na homologação', () => {
   ]);
 });
 
+test('permite reativar a conta técnica da Secretaria Administrativa', () => {
+  const result = validateHomologationReset({
+    ...validInput,
+    users: 'teste.fluxo.administracao',
+  });
+  assert.deepEqual(result.users, ['teste.fluxo.administracao']);
+});
+
 test('recusa execução fora da homologação', () => {
   assert.throws(
     () => validateHomologationReset({ ...validInput, environment: 'production' }),
