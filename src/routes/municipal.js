@@ -259,10 +259,7 @@ router.patch('/meetings/:id/status', requireMunicipalManagement, async (request,
 function demandVisibility(access) {
   if (canDecideSchoolDemand(access)) return { sql: '', params: [] };
   if (canExecuteSchoolDemand(access)) {
-    return {
-      sql: `WHERE d.status IN ('Autorizada para execução','Pendente na Administração','Demanda resolvida')`,
-      params: [],
-    };
+    return { sql: '', params: [] };
   }
   if (canCreateSchoolDemand(access)) {
     return { sql: 'WHERE d.escola_id=ANY($1::int[])', params: [access.escolas || []] };
@@ -276,7 +273,7 @@ router.get('/demands', async (request, response, next) => {
     if (!visibility) return response.status(403).json({ message: 'Seu perfil não participa do fluxo de demandas escolares.' });
     const { rows } = await pool.query(`
       SELECT d.id,d.escola_id AS "escolaId",e.nome AS escola,d.titulo,d.categoria,d.descricao,
-        d.prioridade,d.status,d.prazo,d.responsavel_id AS "responsavelId",ur.nome AS responsavel,
+        d.prioridade,d.status,d.prazo,d.setor_responsavel AS "setorResponsavel",d.assumida_em AS "assumidaEm",d.responsavel_id AS "responsavelId",ur.nome AS responsavel,
         uc.nome AS "criadoPor",ua.nome AS "autorizadoPor",ue.nome AS "executadoPor",
         d.autorizado_em AS "autorizadoEm",d.resolvido_em AS "resolvidoEm",
         d.criado_em AS "criadoEm",d.atualizado_em AS "atualizadoEm",
@@ -362,7 +359,7 @@ router.get('/demands/:demandId/attachments/:attachmentId', async (request, respo
     if (!item) return response.status(404).json({ message: 'Anexo não encontrado.' });
 
     const allowed = canDecideSchoolDemand(request.access)
-      || (canExecuteSchoolDemand(request.access) && ['Autorizada para execução', 'Pendente na Administração', 'Demanda resolvida'].includes(item.status))
+      || canExecuteSchoolDemand(request.access)
       || (canCreateSchoolDemand(request.access) && (request.access.escolas || []).includes(Number(item.escola_id)));
     if (!allowed) return response.status(403).json({ message: 'Sem permissão para baixar este anexo.' });
 
@@ -420,6 +417,34 @@ router.post('/demands/:id/execution', async (request, response, next) => {
     await client.query('COMMIT');
     return response.json({ id, status, message: data.acao === 'concluir' ? 'Tarefa concluída e Secretaria de Educação notificada.' : 'Tarefa mantida como pendente.' });
   } catch (error) { await client.query('ROLLBACK'); return next(error); } finally { client.release(); }
+});
+
+router.post('/demands/:id/action', async (request,response,next)=>{
+  const operational=canExecuteSchoolDemand(request.access);const strategic=canDecideSchoolDemand(request.access);
+  if(!operational&&!strategic)return response.status(403).json({message:'Seu perfil não pode movimentar demandas.'});
+  const client=await pool.connect();
+  try{
+    const id=z.coerce.number().int().positive().parse(request.params.id);
+    const data=z.object({acao:z.enum(['assumir','encaminhar','solicitar_informacao','autorizar','executar','concluir']),mensagem:z.string().trim().min(3).max(3000),setorResponsavel:z.string().trim().min(2).max(120).nullable().optional()}).parse(request.body);
+    await client.query('BEGIN');
+    const {rows}=await client.query('SELECT * FROM demandas_municipais WHERE id=$1 FOR UPDATE',[id]);const demand=rows[0];
+    if(!demand){await client.query('ROLLBACK');return response.status(404).json({message:'Demanda não encontrada.'});}
+    if(demand.status==='Demanda resolvida')throw Object.assign(new Error('A demanda já está concluída.'),{statusCode:409});
+    if(data.acao==='encaminhar'&&!data.setorResponsavel)throw Object.assign(new Error('Informe o setor responsável pelo atendimento.'),{statusCode:400});
+    const transitions={assumir:demand.status==='Enviada à Secretaria'?'Em análise pela Secretaria':demand.status,encaminhar:demand.status==='Enviada à Secretaria'?'Em análise pela Secretaria':demand.status,solicitar_informacao:'Pendente na Secretaria',autorizar:'Autorizada para execução',executar:'Em execução',concluir:'Demanda resolvida'};
+    const nextStatus=transitions[data.acao];
+    if(data.acao==='executar'&&!['Autorizada para execução','Pendente na Administração','Em execução'].includes(demand.status))throw Object.assign(new Error('Autorize a demanda antes de iniciar a execução.'),{statusCode:409});
+    if(data.acao==='concluir'&&demand.status!=='Em execução')throw Object.assign(new Error('Marque a demanda em execução antes de concluir.'),{statusCode:409});
+    await client.query(`UPDATE demandas_municipais SET status=$1,responsavel_id=CASE WHEN $2='assumir' THEN $3 ELSE responsavel_id END,assumida_em=CASE WHEN $2='assumir' THEN COALESCE(assumida_em,NOW()) ELSE assumida_em END,setor_responsavel=CASE WHEN $2='encaminhar' THEN $4 ELSE setor_responsavel END,autorizado_por=CASE WHEN $2='autorizar' THEN $3 ELSE autorizado_por END,autorizado_em=CASE WHEN $2='autorizar' THEN NOW() ELSE autorizado_em END,executado_por=CASE WHEN $2 IN ('executar','concluir') THEN $3 ELSE executado_por END,resolvido_em=CASE WHEN $2='concluir' THEN NOW() ELSE resolvido_em END,concluido_em=CASE WHEN $2='concluir' THEN NOW() ELSE concluido_em END,atualizado_em=NOW() WHERE id=$5`,[nextStatus,data.acao,request.access.userId,data.setorResponsavel||null,id]);
+    await client.query(`INSERT INTO historico_demandas_municipais(demanda_id,usuario_id,status_anterior,status_novo,mensagem) VALUES($1,$2,$3,$4,$5)`,[id,request.access.userId,demand.status,nextStatus,data.mensagem]);
+    if(data.acao==='solicitar_informacao'){
+      await client.query(`INSERT INTO notificacoes_demandas(demanda_id,destinatario_setor,escola_id,titulo,mensagem,cor) VALUES($1,'Direção Escolar',$2,$3,$4,'vermelho')`,[id,demand.escola_id,`Informação solicitada: ${demand.titulo}`,data.mensagem]);
+    }
+    if(data.acao==='autorizar')await client.query(`INSERT INTO notificacoes_demandas(demanda_id,destinatario_setor,titulo,mensagem,cor) VALUES($1,'Secretaria Administrativa',$2,$3,'verde')`,[id,`Demanda autorizada: ${demand.titulo}`,data.mensagem]);
+    if(data.acao==='concluir')await client.query(`INSERT INTO notificacoes_demandas(demanda_id,destinatario_setor,titulo,mensagem,cor) VALUES($1,'Secretaria de Educação',$2,$3,'verde'),($1,'Direção Escolar',$2,$3,'verde')`,[id,`Demanda concluída: ${demand.titulo}`,data.mensagem]);
+    if(data.acao==='concluir')await client.query(`UPDATE notificacoes_demandas SET escola_id=$1 WHERE demanda_id=$2 AND destinatario_setor='Direção Escolar' AND escola_id IS NULL`,[demand.escola_id,id]);
+    await client.query('COMMIT');return response.json({id,status:nextStatus,message:'Demanda atualizada e histórico registrado.'});
+  }catch(error){await client.query('ROLLBACK');return next(error);}finally{client.release();}
 });
 
 function notificationVisibility(access) {
