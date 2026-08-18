@@ -401,6 +401,7 @@ router.patch('/:id', allowPersonnelAdministration, async (request, response, nex
     await client.query('BEGIN');
     const user = await findUser(client, request.params.id, true);
     assertOperationalTarget(request, user);
+    request.auditBefore = { ...user, escolas: await listSchools(client, user.id) };
     const ids = data.escolaIds ? uniqueSchoolIds(data.escolaIds) : null;
     if (ids) {
       validateSchoolBindings(user.perfil, ids);
@@ -417,6 +418,7 @@ router.patch('/:id', allowPersonnelAdministration, async (request, response, nex
     const currentSchools=ids||((await listSchools(client,user.id)).map((school)=>school.id));
     const currentStatus=data.situacaoAcesso||(await client.query('SELECT situacao_acesso FROM usuarios WHERE id=$1',[user.id])).rows[0].situacao_acesso;
     await recordPermission(client,user.id,user.tipo_usuario_id,currentSchools,currentStatus,'cadastro_atualizado',request.user.sub);
+    request.auditAfter = { id: user.id, ...data, escolaIds: currentSchools, situacaoAcesso: currentStatus };
     await client.query('COMMIT');
     return response.json({id:user.id,message:'Cadastro funcional atualizado.',escolas:await listSchools(client,user.id)});
   } catch(error){await client.query('ROLLBACK');return next(error);} finally {client.release();}
@@ -470,11 +472,13 @@ router.patch('/:id/schools', async (request, response, next) => {
     await client.query('BEGIN');
     const user = await findUser(client, request.params.id, true);
     assertOperationalTarget(request, user);
+    request.auditBefore = { usuarioId: user.id, escolas: await listSchools(client, user.id) };
     validateSchoolBindings(user.perfil, ids);
     await assertSchoolsExist(client, ids);
     await syncUserSchools(client, user.id, ids);
     const { rows } = await client.query('SELECT situacao_acesso FROM usuarios WHERE id=$1', [user.id]);
     await recordPermission(client, user.id, user.tipo_usuario_id, ids, rows[0].situacao_acesso, 'escolas_alteradas', request.user.sub);
+    request.auditAfter = { usuarioId: user.id, escolaIds: ids };
     await client.query('COMMIT');
     return response.json({ id: user.id, nome: user.nome, perfil: user.perfil, escolas: await listSchools(client, user.id) });
   } catch (error) { await client.query('ROLLBACK'); return next(error); }

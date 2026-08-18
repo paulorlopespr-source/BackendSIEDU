@@ -429,6 +429,7 @@ router.post('/demands/:id/action', async (request,response,next)=>{
     await client.query('BEGIN');
     const {rows}=await client.query('SELECT * FROM demandas_municipais WHERE id=$1 FOR UPDATE',[id]);const demand=rows[0];
     if(!demand){await client.query('ROLLBACK');return response.status(404).json({message:'Demanda não encontrada.'});}
+    request.auditBefore={...demand};
     if(demand.status==='Demanda resolvida')throw Object.assign(new Error('A demanda já está concluída.'),{statusCode:409});
     if(data.acao==='encaminhar'&&!data.setorResponsavel)throw Object.assign(new Error('Informe o setor responsável pelo atendimento.'),{statusCode:400});
     const transitions={assumir:demand.status==='Enviada à Secretaria'?'Em análise pela Secretaria':demand.status,encaminhar:demand.status==='Enviada à Secretaria'?'Em análise pela Secretaria':demand.status,solicitar_informacao:'Pendente na Secretaria',autorizar:'Autorizada para execução',executar:'Em execução',concluir:'Demanda resolvida'};
@@ -436,6 +437,7 @@ router.post('/demands/:id/action', async (request,response,next)=>{
     if(data.acao==='executar'&&!['Autorizada para execução','Pendente na Administração','Em execução'].includes(demand.status))throw Object.assign(new Error('Autorize a demanda antes de iniciar a execução.'),{statusCode:409});
     if(data.acao==='concluir'&&demand.status!=='Em execução')throw Object.assign(new Error('Marque a demanda em execução antes de concluir.'),{statusCode:409});
     await client.query(`UPDATE demandas_municipais SET status=$1,responsavel_id=CASE WHEN $2='assumir' THEN $3 ELSE responsavel_id END,assumida_em=CASE WHEN $2='assumir' THEN COALESCE(assumida_em,NOW()) ELSE assumida_em END,setor_responsavel=CASE WHEN $2='encaminhar' THEN $4 ELSE setor_responsavel END,autorizado_por=CASE WHEN $2='autorizar' THEN $3 ELSE autorizado_por END,autorizado_em=CASE WHEN $2='autorizar' THEN NOW() ELSE autorizado_em END,executado_por=CASE WHEN $2 IN ('executar','concluir') THEN $3 ELSE executado_por END,resolvido_em=CASE WHEN $2='concluir' THEN NOW() ELSE resolvido_em END,concluido_em=CASE WHEN $2='concluir' THEN NOW() ELSE concluido_em END,atualizado_em=NOW() WHERE id=$5`,[nextStatus,data.acao,request.access.userId,data.setorResponsavel||null,id]);
+    request.auditAfter={id,status:nextStatus,responsavelId:data.acao==='assumir'?request.access.userId:demand.responsavel_id,setorResponsavel:data.acao==='encaminhar'?data.setorResponsavel:demand.setor_responsavel,acao:data.acao,mensagem:data.mensagem};
     await client.query(`INSERT INTO historico_demandas_municipais(demanda_id,usuario_id,status_anterior,status_novo,mensagem) VALUES($1,$2,$3,$4,$5)`,[id,request.access.userId,demand.status,nextStatus,data.mensagem]);
     if(data.acao==='solicitar_informacao'){
       await client.query(`INSERT INTO notificacoes_demandas(demanda_id,destinatario_setor,escola_id,titulo,mensagem,cor) VALUES($1,'Direção Escolar',$2,$3,$4,'vermelho')`,[id,demand.escola_id,`Informação solicitada: ${demand.titulo}`,data.mensagem]);
