@@ -33,4 +33,5 @@ export const migrations = [
   '59_ferias_afastamentos_funcionais.sql',
   '60_cid_alerta_atestados.sql',
   '61_operacao_demandas_administrativas.sql',
+  '62_patrimonio_municipal.sql',
 ];
