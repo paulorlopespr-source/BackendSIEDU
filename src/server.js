@@ -25,6 +25,7 @@ import usersRouter from './routes/users.js';
 import personnelLeavesRouter from './routes/personnel-leaves.js';
 import assetsRouter from './routes/assets.js';
 import inventoryRouter from './routes/inventory.js';
+import maintenanceRouter from './routes/maintenance.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -66,6 +67,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/personnel-leaves', personnelLeavesRouter);
 app.use('/api/assets', assetsRouter);
 app.use('/api/inventory', inventoryRouter);
+app.use('/api/maintenance', maintenanceRouter);
 app.use('/api/schools', schoolsRouter);
 app.use('/api/reference', referenceRouter);
 app.use('/api/transport', transportRouter);
