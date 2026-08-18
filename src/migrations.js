@@ -36,4 +36,5 @@ export const migrations = [
   '62_patrimonio_municipal.sql',
   '63_foto_descricao_patrimonio.sql',
   '64_almoxarifado.sql',
+  '65_manutencao_municipal.sql',
 ];
