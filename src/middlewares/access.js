@@ -1,4 +1,5 @@
 import { pool } from '../database.js';
+import { canManageAcademics } from '../utils/accessPolicy.js';
 
 export async function loadAccessContext(request, response, next) {
   try {
@@ -64,15 +65,7 @@ export function allowSchoolStaff(request, response, next) {
 }
 
 export function allowAcademicManagement(request, response, next) {
-  const allowedProfiles = new Set([
-    'Coordenador Pedagógico Municipal',
-    'Diretor',
-    'Vice-Diretor',
-    'Coordenador Pedagógico',
-    'Secretário Escolar',
-  ]);
-
-  if (request.access?.municipal || allowedProfiles.has(request.access?.perfil)) {
+  if (canManageAcademics(request.access)) {
     return next();
   }
 
