@@ -28,12 +28,16 @@ router.get('/', async (_request, response, next) => {
       pool.query(`
         SELECT id, prefixo, placa, tipo, marca_modelo, ano_fabricacao, capacidade,
           estado, situacao_propriedade, foto_url, ultima_manutencao,
-          proxima_manutencao, quilometragem, itens_manutencao, ativo
+          proxima_manutencao, quilometragem, itens_manutencao, documento_veiculo,
+          validade_documento, ativo,
+          (validade_documento IS NOT NULL AND validade_documento <= CURRENT_DATE + 30) AS alerta_documento,
+          (proxima_manutencao IS NOT NULL AND proxima_manutencao <= CURRENT_DATE + 15) AS alerta_manutencao
         FROM veiculos_transporte
         ORDER BY prefixo
       `),
       pool.query(`
-        SELECT id, nome, cpf, cnh, telefone, validade_cnh, ativo
+        SELECT id, nome, cpf, cnh, categoria_cnh, telefone, validade_cnh, ativo,
+          (validade_cnh IS NOT NULL AND validade_cnh <= CURRENT_DATE + 30) AS alerta_cnh
         FROM motoristas_transporte
         ORDER BY nome
       `),
@@ -49,6 +53,7 @@ router.get('/', async (_request, response, next) => {
           r.pontos_parada, r.ativo, r.veiculo_id, r.motorista_id,
           r.acompanhante_id, v.prefixo AS veiculo, m.nome AS motorista,
           a.nome AS acompanhante,
+          COALESCE((SELECT JSON_AGG(JSON_BUILD_OBJECT('id',e.id,'nome',e.nome) ORDER BY e.nome) FROM rotas_escolas_transporte re JOIN escolas e ON e.id=re.escola_id WHERE re.rota_id=r.id),'[]'::json) AS escolas,
           COUNT(ar.id)::int AS total_alunos
         FROM rotas_transporte r
         JOIN veiculos_transporte v ON v.id = r.veiculo_id
@@ -81,6 +86,12 @@ router.get('/', async (_request, response, next) => {
       pool.query('SELECT id, nome FROM escolas ORDER BY nome'),
     ]);
 
+    const alerts = [
+      ...vehicles.rows.filter((item) => item.alerta_documento).map((item) => ({ tipo: 'documentacao', titulo: `Documento do veículo ${item.prefixo}`, data: item.validade_documento })),
+      ...vehicles.rows.filter((item) => item.alerta_manutencao).map((item) => ({ tipo: 'manutencao', titulo: `Manutenção do veículo ${item.prefixo}`, data: item.proxima_manutencao })),
+      ...drivers.rows.filter((item) => item.alerta_cnh).map((item) => ({ tipo: 'documentacao', titulo: `CNH de ${item.nome}`, data: item.validade_cnh })),
+    ].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+
     return response.json({
       vehicles: vehicles.rows,
       drivers: drivers.rows,
@@ -89,6 +100,7 @@ router.get('/', async (_request, response, next) => {
       students: students.rows,
       maintenance: maintenance.rows,
       schools: schools.rows,
+      alerts,
     });
   } catch (error) {
     return next(error);
@@ -111,6 +123,8 @@ router.post('/vehicles', async (request, response, next) => {
       proximaManutencao: optionalText,
       quilometragem: optionalPositiveInteger,
       itensManutencao: optionalText,
+      documentoVeiculo: optionalText,
+      validadeDocumento: optionalText,
       secretariaId: z.coerce.number().int().positive().optional().nullable(),
     }).parse(request.body);
 
@@ -118,8 +132,8 @@ router.post('/vehicles', async (request, response, next) => {
       INSERT INTO veiculos_transporte (
         prefixo, placa, tipo, marca_modelo, ano_fabricacao, capacidade, estado,
         situacao_propriedade, foto_url, ultima_manutencao, proxima_manutencao,
-        quilometragem, itens_manutencao, secretaria_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        quilometragem, itens_manutencao, secretaria_id, documento_veiculo, validade_documento
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
       RETURNING *
     `, [
       data.prefixo,
@@ -136,6 +150,8 @@ router.post('/vehicles', async (request, response, next) => {
       data.quilometragem,
       data.itensManutencao,
       data.secretariaId,
+      data.documentoVeiculo,
+      data.validadeDocumento,
     ]);
     return response.status(201).json(rows[0]);
   } catch (error) {
@@ -151,13 +167,14 @@ router.post('/drivers', async (request, response, next) => {
       cnh: z.string().trim().min(3),
       telefone: optionalText,
       validadeCnh: optionalText,
+      categoriaCnh: z.string().trim().max(10).optional().transform((value) => value || null),
     }).parse(request.body);
 
     const { rows } = await pool.query(`
-      INSERT INTO motoristas_transporte (nome, cpf, cnh, telefone, validade_cnh)
-      VALUES ($1,$2,$3,$4,$5)
+      INSERT INTO motoristas_transporte (nome, cpf, cnh, telefone, validade_cnh, categoria_cnh)
+      VALUES ($1,$2,$3,$4,$5,$6)
       RETURNING *
-    `, [data.nome, data.cpf, data.cnh, data.telefone, data.validadeCnh]);
+    `, [data.nome, data.cpf, data.cnh, data.telefone, data.validadeCnh, data.categoriaCnh]);
     return response.status(201).json(rows[0]);
   } catch (error) {
     return next(error);
@@ -199,6 +216,7 @@ router.post('/routes', async (request, response, next) => {
       veiculoId: z.coerce.number().int().positive(),
       motoristaId: z.coerce.number().int().positive(),
       acompanhanteId: z.coerce.number().int().positive().optional().nullable(),
+      escolaIds: z.array(z.coerce.number().int().positive()).min(1),
     }).parse(request.body);
 
     const { rows } = await pool.query(`
@@ -223,6 +241,9 @@ router.post('/routes', async (request, response, next) => {
       data.motoristaId,
       data.acompanhanteId,
     ]);
+    for (const escolaId of data.escolaIds) {
+      await pool.query('INSERT INTO rotas_escolas_transporte(rota_id,escola_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [rows[0].id, escolaId]);
+    }
     return response.status(201).json(rows[0]);
   } catch (error) {
     return next(error);
