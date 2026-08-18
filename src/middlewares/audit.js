@@ -70,6 +70,8 @@ export function auditMutations(request, response, next) {
       || request.params?.id
       || null;
     const data = sanitize({
+      valorAnterior: request.auditBefore ?? null,
+      valorNovo: request.auditAfter ?? responseBody ?? request.body,
       entrada: request.body,
       resultado: responseBody,
       statusHttp: response.statusCode,
