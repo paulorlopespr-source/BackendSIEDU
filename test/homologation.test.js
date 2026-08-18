@@ -16,12 +16,19 @@ test('aceita somente usuários de teste conhecidos na homologação', () => {
   ]);
 });
 
-test('permite reativar a conta técnica da Secretaria Administrativa', () => {
+test('permite reativar as contas oficiais dos portais de homologação', () => {
   const result = validateHomologationReset({
     ...validInput,
-    users: 'teste.fluxo.administracao',
+    users: 'teste.SEC, teste.FIN, ana.aluna.2026',
   });
-  assert.deepEqual(result.users, ['teste.fluxo.administracao']);
+  assert.deepEqual(result.users, ['teste.sec', 'teste.fin', 'ana.aluna.2026']);
+});
+
+test('recusa o identificador administrativo histórico', () => {
+  assert.throws(
+    () => validateHomologationReset({ ...validInput, users: 'teste.fluxo.administracao' }),
+    /não autorizados/,
+  );
 });
 
 test('recusa execução fora da homologação', () => {
