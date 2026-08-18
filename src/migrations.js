@@ -41,4 +41,5 @@ export const migrations = [
   '67_transporte_administrativo.sql',
   '68_documentos_funcionais.sql',
   '69_solicitacoes_administrativas.sql',
+  '70_setor_financeiro_fiscal.sql',
 ];
