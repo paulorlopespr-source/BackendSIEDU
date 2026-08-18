@@ -28,6 +28,7 @@ import inventoryRouter from './routes/inventory.js';
 import maintenanceRouter from './routes/maintenance.js';
 import protocolsRouter from './routes/protocols.js';
 import personnelDocumentsRouter from './routes/personnel-documents.js';
+import administrativeRequestsRouter from './routes/administrative-requests.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -72,6 +73,7 @@ app.use('/api/inventory', inventoryRouter);
 app.use('/api/maintenance', maintenanceRouter);
 app.use('/api/protocols', protocolsRouter);
 app.use('/api/personnel-documents', personnelDocumentsRouter);
+app.use('/api/administrative-requests', administrativeRequestsRouter);
 app.use('/api/schools', schoolsRouter);
 app.use('/api/reference', referenceRouter);
 app.use('/api/transport', transportRouter);
