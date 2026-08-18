@@ -39,4 +39,5 @@ export const migrations = [
   '65_manutencao_municipal.sql',
   '66_documentos_protocolo.sql',
   '67_transporte_administrativo.sql',
+  '68_documentos_funcionais.sql',
 ];
