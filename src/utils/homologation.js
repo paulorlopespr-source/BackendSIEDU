@@ -4,7 +4,9 @@ const ALLOWED_TEST_USERS = new Set([
   'larissa.coordenacao.2026',
   'ricardo.diretor.2026',
   'carlos.professor.2026',
-  'teste.fluxo.administracao',
+  'ana.aluna.2026',
+  'teste.sec',
+  'teste.fin',
 ]);
 
 export function validateHomologationReset({ environment, confirmation, users, password }) {
