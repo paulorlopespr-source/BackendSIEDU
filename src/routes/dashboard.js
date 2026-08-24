@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { pool } from '../database.js';
 import { authenticate } from '../middlewares/auth.js';
-import { allowMunicipalAdmin, loadAccessContext } from '../middlewares/access.js';
+import { allowPedagogicalDashboard, loadAccessContext } from '../middlewares/access.js';
 
 const router = Router();
-router.use(authenticate, loadAccessContext, allowMunicipalAdmin);
+router.use(authenticate, loadAccessContext, allowPedagogicalDashboard);
 
 async function countExistingTable(tableName) {
   const allowedTables = new Set(['alunos', 'turmas']);
@@ -22,6 +22,34 @@ async function countExistingTable(tableName) {
 
 router.get('/manager', async (_request, response, next) => {
   try {
+    const request = _request;
+    if (!request.access.municipal) {
+      const schoolIds = request.access.escolas || [];
+      const [classes, students, professors, attendance, average] = await Promise.all([
+        pool.query(`SELECT COUNT(*)::int AS total FROM turmas WHERE escola_id = ANY($1::bigint[]) AND status = 'Ativa'`, [schoolIds]),
+        pool.query(`SELECT COUNT(DISTINCT m.aluno_id)::int AS total FROM matriculas m JOIN turmas t ON t.id = m.turma_id WHERE t.escola_id = ANY($1::bigint[]) AND m.status = 'Ativa'`, [schoolIds]),
+        pool.query(`SELECT COUNT(DISTINCT tp.professor_id)::int AS total FROM turma_professores tp JOIN turmas t ON t.id = tp.turma_id WHERE t.escola_id = ANY($1::bigint[]) AND t.status = 'Ativa'`, [schoolIds]),
+        pool.query(`SELECT COALESCE(AVG(CASE WHEN f.presente THEN 100.0 ELSE 0 END), 0)::float8 AS total FROM diario_frequencias f JOIN diarios_classe d ON d.id = f.diario_id JOIN turmas t ON t.id = d.turma_id WHERE t.escola_id = ANY($1::bigint[])`, [schoolIds]),
+        pool.query(`SELECT COALESCE(AVG((n.pontos / NULLIF(a.valor_maximo, 0)) * 10), 0)::float8 AS total FROM notas_avaliacoes n JOIN avaliacoes_professor a ON a.id = n.avaliacao_id JOIN turmas t ON t.id = a.turma_id WHERE t.escola_id = ANY($1::bigint[])`, [schoolIds]),
+      ]);
+      return response.json({
+        summary: {
+          schools: schoolIds.length,
+          students: students.rows[0].total,
+          professors: professors.rows[0].total,
+          classes: classes.rows[0].total,
+          attendance: attendance.rows[0].total,
+          average: average.rows[0].total,
+          investment: 0,
+          spent: 0,
+          idebTarget: 0,
+          pendingPlans: 0,
+        },
+        academic: { available: Number(classes.rows[0].total) > 0, ideb: [], performance: [] },
+        financeDistribution: [], schoolRanking: [], alerts: [], transport: {}, users: {},
+        generatedAt: new Date().toISOString(),
+      });
+    }
     const [
       schools,
       professors,
