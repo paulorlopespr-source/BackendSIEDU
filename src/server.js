@@ -29,6 +29,7 @@ import maintenanceRouter from './routes/maintenance.js';
 import protocolsRouter from './routes/protocols.js';
 import personnelDocumentsRouter from './routes/personnel-documents.js';
 import administrativeRequestsRouter from './routes/administrative-requests.js';
+import pedagogicalManagementRouter from './routes/pedagogical-management.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -86,6 +87,7 @@ app.use('/api/dashboard', dashboardRouter);
 app.use('/api/audit', auditRouter);
 app.use('/api/academic', academicRouter);
 app.use('/api/municipal', municipalRouter);
+app.use('/api/pedagogical-management', pedagogicalManagementRouter);
 
 app.use((_request, response) => {
   return response.status(404).json({ message: 'Rota não encontrada.' });
