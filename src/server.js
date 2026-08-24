@@ -45,13 +45,21 @@ const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const HOMOLOGATION_ENVIRONMENT_ID = '40bd8d52-5ab1-4e18-ba6f-1e641f89e489';
+const isHomologation = process.env.RAILWAY_ENVIRONMENT_ID === HOMOLOGATION_ENVIRONMENT_ID;
+const homologationPreviewPattern = /^https:\/\/front-siedu-[a-z0-9-]+-prl09\.vercel\.app$/i;
+
+function isAllowedOrigin(origin) {
+  return allowedOrigins.includes(origin)
+    || (isHomologation && homologationPreviewPattern.test(origin));
+}
 
 app.use(secureHeaders);
 app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || isAllowedOrigin(origin)) {
       return callback(null, true);
     }
 
