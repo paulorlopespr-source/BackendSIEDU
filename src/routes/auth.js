@@ -141,7 +141,7 @@ router.post('/recuperar-senha', recoveryLimiter, async (request, response, next)
         VALUES ($1,$2,$3)
       `, [
         user.email,
-        'Código de recuperação de senha — SIEDU-PINDOBAÇU',
+        'Código de recuperação de senha — SIEDU',
         `Olá, ${user.nome}. Seu código de recuperação é ${code}. Ele expira em 15 minutos.`,
       ]);
       await client.query('COMMIT');
@@ -153,7 +153,7 @@ router.post('/recuperar-senha', recoveryLimiter, async (request, response, next)
     }
 
     try {
-      await sendSystemEmail({ to: user.email, subject: 'Código de recuperação de senha — SIEDU-PINDOBAÇU', text: `Olá, ${user.nome}. Seu código de recuperação é ${code}. Ele expira em 15 minutos.` });
+      await sendSystemEmail({ to: user.email, subject: 'Código de recuperação de senha — SIEDU', text: `Olá, ${user.nome}. Seu código de recuperação é ${code}. Ele expira em 15 minutos.` });
       await pool.query(`UPDATE fila_emails_sistema SET status='Enviado', enviado_em=NOW() WHERE destinatario=$1 AND status='Pendente' AND criado_em > NOW() - INTERVAL '1 minute'`, [user.email]);
     } catch (emailError) {
       console.error('Falha no envio real; e-mail permanece na fila:', emailError.message);
@@ -253,3 +253,4 @@ router.post('/alterar-senha', authenticate, async (request, response, next) => {
 });
 
 export default router;
+
