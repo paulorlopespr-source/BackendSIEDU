@@ -44,4 +44,6 @@ export const migrations = [
   '70_setor_financeiro_fiscal.sql',
   '71_padronizar_usuarios_teste_homologacao.sql',
   '72_gestao_pedagogica_unidade.sql',
+  '73_usuario_teste_recuperacao_email.sql',
 ];
+
