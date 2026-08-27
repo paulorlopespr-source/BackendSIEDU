@@ -1,4 +1,4 @@
-﻿
+
 
 {
   "name": "sigepin-api",
@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "test": "node --test --test-concurrency=1",
+    "test": "node --test --test-concurrency=1 test/academic-validation.test.js test/access-policy.test.js test/calendar-management.test.js test/demand-attachments.test.js test/demand-workflow.test.js test/homologation.test.js test/learning-access.test.js test/security.test.js test/session-revocation.test.js test/student-access.test.js test/student-calendar.test.js test/validation.test.js test/database-integrity-policy.test.js",
+    "test:database": "node --test --test-concurrency=1 test/academic-database.test.js test/audit.test.js test/schools-database.test.js test/user-school-bindings.test.js",
+    "test:e2e": "node --test --test-concurrency=1 test/production-demand-smoke.mjs",
     "test:academic-api": "node src/scripts/smoke-academic.js",
     "test:user-bindings-api": "node src/scripts/smoke-user-bindings.js",
     "check": "node --check src/server.js",
@@ -26,4 +28,5 @@
     "zod": "^4.4.3"
   }
 }
+
 
