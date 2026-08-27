@@ -2,6 +2,7 @@ import cors from 'cors';
 import 'dotenv/config';
 import express from 'express';
 import { pool } from './database.js';
+import { logError } from './utils/safe-logger.js';
 import { auditMutations } from './middlewares/audit.js';
 import {
   assertSecureEnvironment,
@@ -123,8 +124,11 @@ app.use((error, _request, response, _next) => {
     return response.status(403).json({ message: error.message });
   }
 
-  console.error(error);
-  return response.status(500).json({ message: 'Erro interno do servidor.' });
+  const incidentId = logError('unhandled-request-error', error);
+  return response.status(500).json({
+    message: 'Erro interno do servidor.',
+    incidentId,
+  });
 });
 
 const server = app.listen(port, () => {
