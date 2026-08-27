@@ -5,6 +5,8 @@ import { pool } from '../database.js';
 export async function authenticate(request, response, next) {
   const token = request.headers.authorization?.replace('Bearer ', '');
   if (!token) return response.status(401).json({ message: 'Token de acesso não informado.' });
+  response.setHeader('Cache-Control', 'private, no-store');
+  response.setHeader('Pragma', 'no-cache');
   try {
     const user = jwt.verify(token, process.env.JWT_SECRET, {
       algorithms: ['HS256'],
@@ -31,3 +33,4 @@ export function allowMunicipalAdmin(request, response, next) {
   if (request.user.nivel > 2) return response.status(403).json({ message: 'Acesso exclusivo do Gestor/Secretário de Educação.' });
   return next();
 }
+
