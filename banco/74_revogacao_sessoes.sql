@@ -3,3 +3,4 @@ ALTER TABLE usuarios
 
 COMMENT ON COLUMN usuarios.versao_sessao IS
   'Incrementada após troca, recuperação ou redefinição administrativa de senha para invalidar tokens anteriores.';
+
