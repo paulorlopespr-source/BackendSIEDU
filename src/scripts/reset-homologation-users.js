@@ -46,3 +46,4 @@ try {
   await pool.end();
   process.exitCode = exitCode;
 }
+
