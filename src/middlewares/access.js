@@ -55,6 +55,20 @@ export function allowMunicipalAdmin(request, response, next) {
   return next();
 }
 
+export function allowPedagogicalDashboard(request, response, next) {
+  const pedagogicalProfiles = new Set([
+    'Coordenador Pedagógico Municipal',
+    'Coordenador Pedagógico',
+    'Diretor',
+    'Vice-Diretor',
+    'Professor',
+  ]);
+  if (request.access?.municipal || pedagogicalProfiles.has(request.access?.perfil)) return next();
+  return response.status(403).json({
+    message: 'Acesso pedagógico disponível conforme o vínculo do usuário com a escola, turma ou disciplina.',
+  });
+}
+
 export function allowSchoolStaff(request, response, next) {
   if (request.access?.municipal || request.access?.escolas.length) {
     return next();
