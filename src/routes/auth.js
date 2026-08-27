@@ -47,7 +47,7 @@ router.post('/login', loginLimiter, async (request, response, next) => {
     const { rows } = await pool.query(`
       SELECT
         u.id, u.nome, u.usuario, u.email, u.matricula_funcional, u.termos_aceitos_em, u.senha_hash,
-        u.deve_alterar_senha, u.ativo, t.nome AS perfil, t.nivel,
+        u.deve_alterar_senha, u.ativo, u.situacao_acesso, u.versao_sessao, t.nome AS perfil, t.nivel,
         t.grupo, t.escopo_acesso, t.acesso_sistema
       FROM usuarios u
       JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
@@ -56,7 +56,8 @@ router.post('/login', loginLimiter, async (request, response, next) => {
     `, [usuario]);
 
     const user = rows[0];
-    if (!user || !user.ativo || !(await bcrypt.compare(senha, user.senha_hash))) {
+    if (!user || !user.ativo || user.situacao_acesso !== 'ativo'
+        || !(await bcrypt.compare(senha, user.senha_hash))) {
       return response.status(401).json({ message: 'Usuário ou senha inválidos.' });
     }
 
@@ -65,7 +66,7 @@ router.post('/login', loginLimiter, async (request, response, next) => {
     }
 
     const token = jwt.sign(
-      { sub: user.id, nome: user.nome, perfil: user.perfil, nivel: user.nivel, escopo: user.escopo_acesso },
+      { sub: user.id, nome: user.nome, perfil: user.perfil, nivel: user.nivel, escopo: user.escopo_acesso, versaoSessao: user.versao_sessao },
       process.env.JWT_SECRET,
       {
         algorithm: 'HS256',
@@ -140,7 +141,7 @@ router.post('/recuperar-senha', recoveryLimiter, async (request, response, next)
         VALUES ($1,$2,$3)
       `, [
         user.email,
-        'Código de recuperação de senha — SIEDU-PINDOBAÇU',
+        'Código de recuperação de senha — SIEDU',
         `Olá, ${user.nome}. Seu código de recuperação é ${code}. Ele expira em 15 minutos.`,
       ]);
       await client.query('COMMIT');
@@ -152,7 +153,7 @@ router.post('/recuperar-senha', recoveryLimiter, async (request, response, next)
     }
 
     try {
-      await sendSystemEmail({ to: user.email, subject: 'Código de recuperação de senha — SIEDU-PINDOBAÇU', text: `Olá, ${user.nome}. Seu código de recuperação é ${code}. Ele expira em 15 minutos.` });
+      await sendSystemEmail({ to: user.email, subject: 'Código de recuperação de senha — SIEDU', text: `Olá, ${user.nome}. Seu código de recuperação é ${code}. Ele expira em 15 minutos.` });
       await pool.query(`UPDATE fila_emails_sistema SET status='Enviado', enviado_em=NOW() WHERE destinatario=$1 AND status='Pendente' AND criado_em > NOW() - INTERVAL '1 minute'`, [user.email]);
     } catch (emailError) {
       console.error('Falha no envio real; e-mail permanece na fila:', emailError.message);
@@ -208,7 +209,8 @@ router.post('/redefinir-senha', resetLimiter, async (request, response, next) =>
       await client.query('BEGIN');
       await client.query(`
         UPDATE usuarios
-        SET senha_hash = $1, deve_alterar_senha = FALSE, atualizado_em = NOW()
+        SET senha_hash = $1, deve_alterar_senha = FALSE,
+            versao_sessao = versao_sessao + 1, atualizado_em = NOW()
         WHERE id = $2
       `, [await bcrypt.hash(data.novaSenha, 12), user.id]);
       await client.query(
@@ -242,7 +244,8 @@ router.post('/alterar-senha', authenticate, async (request, response, next) => {
 
     await pool.query(`
       UPDATE usuarios
-      SET senha_hash = $1, deve_alterar_senha = FALSE, atualizado_em = NOW()
+      SET senha_hash = $1, deve_alterar_senha = FALSE,
+          versao_sessao = versao_sessao + 1, atualizado_em = NOW()
       WHERE id = $2
     `, [await bcrypt.hash(novaSenha, 12), request.user.sub]);
     return response.json({ message: 'Senha alterada com sucesso.' });
@@ -252,3 +255,4 @@ router.post('/alterar-senha', authenticate, async (request, response, next) => {
 });
 
 export default router;
+

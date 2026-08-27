@@ -1,4 +1,5 @@
 import { pool } from '../database.js';
+import { canManageAcademics } from '../utils/accessPolicy.js';
 
 export async function loadAccessContext(request, response, next) {
   try {
@@ -25,7 +26,7 @@ export async function loadAccessContext(request, response, next) {
 
     const access = rows[0];
     if (!access || !access.ativo) {
-      return response.status(403).json({ message: 'Usu&aacute;rio inativo ou n&atilde;o encontrado.' });
+      return response.status(403).json({ message: 'Usuário inativo ou não encontrado.' });
     }
 
     request.access = {
@@ -48,7 +49,7 @@ export async function loadAccessContext(request, response, next) {
 export function allowMunicipalAdmin(request, response, next) {
   if (!request.access?.municipal) {
     return response.status(403).json({
-      message: 'Acesso exclusivo do Gestor, Superadministrador ou Secret&aacute;rio de Educa&ccedil;&atilde;o.',
+      message: 'Acesso exclusivo do Gestor, Superadministrador ou Secretário de Educação.',
     });
   }
   return next();
@@ -73,20 +74,12 @@ export function allowSchoolStaff(request, response, next) {
     return next();
   }
   return response.status(403).json({
-    message: 'Seu perfil n&atilde;o possui uma unidade escolar vinculada.',
+    message: 'Seu perfil não possui uma unidade escolar vinculada.',
   });
 }
 
 export function allowAcademicManagement(request, response, next) {
-  const allowedProfiles = new Set([
-    'Coordenador Pedagógico Municipal',
-    'Diretor',
-    'Vice-Diretor',
-    'Coordenador Pedagógico',
-    'Secretário Escolar',
-  ]);
-
-  if (request.access?.municipal || allowedProfiles.has(request.access?.perfil)) {
+  if (canManageAcademics(request.access)) {
     return next();
   }
 
@@ -108,7 +101,7 @@ export function requireSchoolAccess(schoolId) {
       return next();
     }
     return response.status(403).json({
-      message: 'Voc&ecirc; n&atilde;o possui acesso a esta unidade escolar.',
+      message: 'Você não possui acesso a esta unidade escolar.',
     });
   };
 }

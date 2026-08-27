@@ -20,7 +20,24 @@ test('remove senhas, códigos e tokens dos dados de auditoria', () => {
   assert.equal(result.user.nome, 'Usuário de teste');
 });
 
+test('remove dados pessoais e médicos dos dados de auditoria', () => {
+  const result = sanitize({
+    cpf: '00000000000',
+    email: 'pessoa@example.com',
+    telefone: '000000000',
+    cidSid: 'A00',
+  });
+
+  assert.deepEqual(result, {
+    cpf: '[PROTEGIDO]',
+    email: '[PROTEGIDO]',
+    telefone: '[PROTEGIDO]',
+    cidSid: '[PROTEGIDO]',
+  });
+});
+
 test('protege conteúdo muito grande', () => {
   const result = sanitize({ arquivo: 'a'.repeat(501) });
   assert.match(result.arquivo, /CONTEÚDO PROTEGIDO/);
 });
+
