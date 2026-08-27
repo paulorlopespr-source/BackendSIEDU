@@ -23,6 +23,7 @@ try {
            ativo = TRUE,
            situacao_acesso = 'ativo',
            deve_alterar_senha = TRUE,
+           versao_sessao = versao_sessao + 1,
            atualizado_em = NOW()
      WHERE LOWER(usuario) = ANY($2::text[])
      RETURNING usuario`,

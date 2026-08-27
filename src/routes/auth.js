@@ -47,7 +47,7 @@ router.post('/login', loginLimiter, async (request, response, next) => {
     const { rows } = await pool.query(`
       SELECT
         u.id, u.nome, u.usuario, u.email, u.matricula_funcional, u.termos_aceitos_em, u.senha_hash,
-        u.deve_alterar_senha, u.ativo, u.situacao_acesso, t.nome AS perfil, t.nivel,
+        u.deve_alterar_senha, u.ativo, u.situacao_acesso, u.versao_sessao, t.nome AS perfil, t.nivel,
         t.grupo, t.escopo_acesso, t.acesso_sistema
       FROM usuarios u
       JOIN tipos_usuarios t ON t.id = u.tipo_usuario_id
@@ -66,7 +66,7 @@ router.post('/login', loginLimiter, async (request, response, next) => {
     }
 
     const token = jwt.sign(
-      { sub: user.id, nome: user.nome, perfil: user.perfil, nivel: user.nivel, escopo: user.escopo_acesso },
+      { sub: user.id, nome: user.nome, perfil: user.perfil, nivel: user.nivel, escopo: user.escopo_acesso, versaoSessao: user.versao_sessao },
       process.env.JWT_SECRET,
       {
         algorithm: 'HS256',
@@ -209,7 +209,8 @@ router.post('/redefinir-senha', resetLimiter, async (request, response, next) =>
       await client.query('BEGIN');
       await client.query(`
         UPDATE usuarios
-        SET senha_hash = $1, deve_alterar_senha = FALSE, atualizado_em = NOW()
+        SET senha_hash = $1, deve_alterar_senha = FALSE,
+            versao_sessao = versao_sessao + 1, atualizado_em = NOW()
         WHERE id = $2
       `, [await bcrypt.hash(data.novaSenha, 12), user.id]);
       await client.query(
@@ -243,7 +244,8 @@ router.post('/alterar-senha', authenticate, async (request, response, next) => {
 
     await pool.query(`
       UPDATE usuarios
-      SET senha_hash = $1, deve_alterar_senha = FALSE, atualizado_em = NOW()
+      SET senha_hash = $1, deve_alterar_senha = FALSE,
+          versao_sessao = versao_sessao + 1, atualizado_em = NOW()
       WHERE id = $2
     `, [await bcrypt.hash(novaSenha, 12), request.user.sub]);
     return response.json({ message: 'Senha alterada com sucesso.' });
@@ -253,4 +255,3 @@ router.post('/alterar-senha', authenticate, async (request, response, next) => {
 });
 
 export default router;
-

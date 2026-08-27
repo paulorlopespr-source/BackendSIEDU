@@ -45,5 +45,5 @@ export const migrations = [
   '71_padronizar_usuarios_teste_homologacao.sql',
   '72_gestao_pedagogica_unidade.sql',
   '73_usuario_teste_recuperacao_email.sql',
+  '74_revogacao_sessoes.sql',
 ];
-
