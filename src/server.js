@@ -42,10 +42,15 @@ if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+const configuredOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const allowedOrigins = [...new Set([
+  ...configuredOrigins,
+  'https://siedutech.com.br',
+  'https://www.siedutech.com.br',
+])];
 const HOMOLOGATION_ENVIRONMENT_ID = '40bd8d52-5ab1-4e18-ba6f-1e641f89e489';
 const isHomologation = process.env.RAILWAY_ENVIRONMENT_ID === HOMOLOGATION_ENVIRONMENT_ID;
 const homologationPreviewPattern = /^https:\/\/front-siedu-[a-z0-9-]+-prl09\.vercel\.app$/i;
