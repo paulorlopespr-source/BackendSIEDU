@@ -23,3 +23,4 @@ test('o middleware compara o token com a versão atual do banco', () => {
 test('a migração cria a versão de sessão com valor inicial seguro', () => {
   assert.match(migration, /versao_sessao INTEGER NOT NULL DEFAULT 0/);
 });
+
