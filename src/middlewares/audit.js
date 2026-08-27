@@ -11,6 +11,16 @@ const secretFields = new Set([
   'novaSenha',
   'senhaTemporaria',
   'codigo',
+  'cpf',
+  'rg',
+  'email',
+  'emailPessoal',
+  'telefone',
+  'telefoneInstitucional',
+  'whatsapp',
+  'endereco',
+  'cidSid',
+  'cid_sid',
   'comprovanteArquivo',
   'documento',
   'documentoDados',
@@ -97,3 +107,4 @@ export function auditMutations(request, response, next) {
 
   return next();
 }
+
