@@ -1,4 +1,5 @@
 import { pool } from '../database.js';
+import { logError } from '../utils/safe-logger.js';
 
 const mutationMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const secretFields = new Set([
@@ -102,7 +103,7 @@ export function auditMutations(request, response, next) {
       JSON.stringify(data),
       request.ip,
       request.get('user-agent') || null,
-    ]).catch((error) => console.error('Falha ao registrar auditoria:', error.message));
+    ]).catch((error) => logError('audit-write-failed', error));
   });
 
   return next();
