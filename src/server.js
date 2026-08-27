@@ -1,5 +1,153 @@
 import cors from 'cors';
-
 import 'dotenv/config';
+import express from 'express';
+import { pool } from './database.js';
+import { logError } from './utils/safe-logger.js';
+import { auditMutations } from './middlewares/audit.js';
+import {
+  assertSecureEnvironment,
+  secureHeaders,
+} from './middlewares/security.js';
+import auditRouter from './routes/audit.js';
+import academicRouter from './routes/academic.js';
+import municipalRouter from './routes/municipal.js';
+import authRouter from './routes/auth.js';
+import dashboardRouter from './routes/dashboard.js';
+import financeRouter from './routes/finance.js';
+import professorRouter from './routes/professor.js';
+import studentRouter from './routes/student.js';
+import healthRouter from './routes/health.js';
+import learningRouter from './routes/learning.js';
+import calendarRouter from './routes/calendar.js';
+import referenceRouter from './routes/reference.js';
+import schoolsRouter from './routes/schools.js';
+import transportRouter from './routes/transport.js';
+import usersRouter from './routes/users.js';
+import personnelLeavesRouter from './routes/personnel-leaves.js';
+import assetsRouter from './routes/assets.js';
+import inventoryRouter from './routes/inventory.js';
+import maintenanceRouter from './routes/maintenance.js';
+import protocolsRouter from './routes/protocols.js';
+import personnelDocumentsRouter from './routes/personnel-documents.js';
+import administrativeRequestsRouter from './routes/administrative-requests.js';
+import pedagogicalManagementRouter from './routes/pedagogical-management.js';
 
-import express from 'ex
+const app = express();
+const port = process.env.PORT || 3001;
+
+assertSecureEnvironment();
+app.disable('x-powered-by');
+
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
+const configuredOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedOrigins = [...new Set([
+  ...configuredOrigins,
+  'https://siedutech.com.br',
+  'https://www.siedutech.com.br',
+])];
+const HOMOLOGATION_ENVIRONMENT_ID = '40bd8d52-5ab1-4e18-ba6f-1e641f89e489';
+const isHomologation = process.env.RAILWAY_ENVIRONMENT_ID === HOMOLOGATION_ENVIRONMENT_ID;
+const homologationPreviewPattern = /^https:\/\/front-siedu-[a-z0-9-]+-prl09\.vercel\.app$/i;
+
+function isAllowedOrigin(origin) {
+  return allowedOrigins.includes(origin)
+    || (isHomologation && homologationPreviewPattern.test(origin));
+}
+
+app.use(secureHeaders);
+app.use(cors({
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  origin(origin, callback) {
+    if (!origin || isAllowedOrigin(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Origem não autorizada pelo CORS.'));
+  },
+}));
+app.use(express.json({ limit: '8mb' }));
+app.use(auditMutations);
+
+app.get('/', (_request, response) => response.json({
+  name: 'SIEDU API',
+  status: 'online',
+}));
+app.use('/api/health', healthRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/users', usersRouter);
+app.use('/api/personnel-leaves', personnelLeavesRouter);
+app.use('/api/assets', assetsRouter);
+app.use('/api/inventory', inventoryRouter);
+app.use('/api/maintenance', maintenanceRouter);
+app.use('/api/protocols', protocolsRouter);
+app.use('/api/personnel-documents', personnelDocumentsRouter);
+app.use('/api/administrative-requests', administrativeRequestsRouter);
+app.use('/api/schools', schoolsRouter);
+app.use('/api/reference', referenceRouter);
+app.use('/api/transport', transportRouter);
+app.use('/api/finance', financeRouter);
+app.use('/api/professor', professorRouter);
+app.use('/api/student', studentRouter);
+app.use('/api/learning', learningRouter);
+app.use('/api/calendar', calendarRouter);
+app.use('/api/dashboard', dashboardRouter);
+app.use('/api/audit', auditRouter);
+app.use('/api/academic', academicRouter);
+app.use('/api/municipal', municipalRouter);
+app.use('/api/pedagogical-management', pedagogicalManagementRouter);
+
+app.use((_request, response) => {
+  return response.status(404).json({ message: 'Rota não encontrada.' });
+});
+
+app.use((error, _request, response, _next) => {
+  if (error.statusCode) {
+    return response.status(error.statusCode).json({ message: error.message });
+  }
+
+  if (error.name === 'ZodError') {
+    return response.status(400).json({
+      message: error.issues?.[0]?.message || 'Dados inválidos.',
+      errors: error.issues,
+    });
+  }
+
+  if (error.code === '23505') {
+    return response.status(409).json({
+      message: 'Já existe um cadastro com esses dados.',
+    });
+  }
+
+  if (error.message === 'Origem não autorizada pelo CORS.') {
+    return response.status(403).json({ message: error.message });
+  }
+
+  const incidentId = logError('unhandled-request-error', error);
+  return response.status(500).json({
+    message: 'Erro interno do servidor.',
+    incidentId,
+  });
+});
+
+const server = app.listen(port, () => {
+  console.log(`SIEDU API disponível em http://localhost:${port}`);
+});
+
+function shutdown(signal) {
+  console.log(`${signal} recebido. Encerrando o servidor com segurança.`);
+  server.close(async () => {
+    await pool.end();
+    process.exit(0);
+  });
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
