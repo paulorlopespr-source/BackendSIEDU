@@ -38,13 +38,11 @@ const configuredOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-const allowedOrigins = [
-  ...new Set([
-    ...configuredOrigins,
-    'https://siedutech.com.br',
-    'https://www.siedutech.com.br',
-  ]),
-];
+const allowedOrigins = [...new Set([
+  ...configuredOrigins,
+  'https://siedutech.com.br',
+  'https://www.siedutech.com.br',
+])];
 
 app.use(secureHeaders);
 app.use(cors({
