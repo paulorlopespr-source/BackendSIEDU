@@ -255,3 +255,4 @@ router.post('/alterar-senha', authenticate, async (request, response, next) => {
 });
 
 export default router;
+
