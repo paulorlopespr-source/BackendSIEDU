@@ -46,4 +46,6 @@ export const migrations = [
   '72_gestao_pedagogica_unidade.sql',
   '73_usuario_teste_recuperacao_email.sql',
   '74_revogacao_sessoes.sql',
+  '75_integridade_matriculas_retencao.sql',
 ];
+
